@@ -36,7 +36,7 @@
 
 ## Overview & Core Value Proposition
 
-Empirical research in Multi- and Many-Objective Optimization ($M \ge 2$) has historically been constrained by computational bottlenecks: CPU-bound object allocation overheads, quadratic non-dominated sorting latencies, and exponential ($\#P$-hard) metric calculations. 
+Empirical research in Multi- and Many-Objective Optimization ($M \ge 2$) has historically been constrained by computational bottlenecks: CPU-bound object allocation overheads, quadratic non-dominated sorting latencies, and exponential (sharp-P-hard, $\mathcal{O}(N^M)$) metric calculations.
 
 **EmoPyLab** addresses these bottlenecks by establishing an end-to-end tensor-native optimization ecosystem in Python:
 
