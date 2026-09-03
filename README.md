@@ -6,7 +6,6 @@
 
 [![Research Group](https://img.shields.io/badge/Research_Group-METISBr-blue.svg)](https://metisbr.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/METISBR/emopylab/blob/main/LICENSE)
-[![Preprint: arXiv](https://img.shields.io/badge/Preprint-arXiv%3A2603.01345-red.svg)](https://arxiv.org/abs/2603.01345)
 
 > **Author:** Professor Thiago Santos — Federal University of Ouro Preto (UFOP), Brazil  
 > **Group:** [METISBr — Multi-Objective and Many-Objective Optimization Research](https://metisbr.com)  
