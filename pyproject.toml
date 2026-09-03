@@ -58,6 +58,9 @@ jax = [
     "jax>=0.9,<1",
     "jaxlib>=0.9,<1",
 ]
+torch = [
+    "torch>=2.0,<3",
+]
 cupy = [
     "cupy-cuda12x>=13,<14",
 ]
