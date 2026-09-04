@@ -1,0 +1,63 @@
+# Local OS and interpreter artifacts
+.DS_Store
+**/.DS_Store
+__pycache__/
+**/__pycache__/
+*.py[cod]
+
+# Local virtual environments
+.venv/
+venv/
+
+# Archive packages and CSVs (models are handled via Git LFS)
+*.bin
+*.tar.gz
+*.zip
+*.csv
+
+# Local logs, profiles, and generated run outputs
+logs/
+*.prof
+latest_results.json
+experiment_module_results/
+test_module_results/
+reports/validation/
+mcdm_results/
+results/
+
+# Local credentials and deployment scripts — never version in release
+.pymoolab_anthropic_api_key
+.emopylab_anthropic_api_key
+deploy_to_github.py
+core/utils/resend_notifier.py
+
+# Local runtime state (autosaved GUI configurations)
+last_experiment_config.json
+emopylab_config.json
+pymoo_experiment_config.json
+pymoo_config.json
+# Local benchmark/test/scripts workspace
+tests/
+tools/
+scripts/
+
+# Local-only developer tooling and cluster scripts
+/AGENTS.md
+clean_pycache.py
+push_without_tests.sh
+styles.py
+PHASES_STATE.md
+*sdumont*
+sbatch*
+run_benchmark.sh
+run_local_benchmark.sh
+test_complete_job.sh
+
+# Local pytest cache
+.pytest_cache/
+
+# Markdown documents: Keep root README.md and DESIGN.md tracked, ignore drafts
+*.md
+!README.md
+!DESIGN.md
+docs/
