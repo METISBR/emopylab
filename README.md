@@ -93,22 +93,19 @@ Empirical research in Multi- and Many-Objective Optimization ($M \ge 2$) has his
 
 ---
 
-## Hardware Acceleration & Benchmarks
+## Hardware Acceleration & Supercomputer Benchmarks (Santos Dumont LNCC)
 
-Empirical scalability evaluations demonstrate order-of-magnitude throughput gains across objective and population dimensions:
+Empirical throughput and speedup measurements evaluated directly on the **Santos Dumont Supercomputer** (Bull Sequana X1000 GPU partition, **NVIDIA Tesla V100-SXM2-32GB** with CUDA 12.6 / CuPy vs. Intel Xeon Gold 6148), using **real benchmark problems (DTLZ2, MaF1)** and real approximation populations obtained via **NSGA3Local**:
 
-### 1. Distance Metric Scalability (IGD+)
+### 1. Distance Metric Scalability (IGD+ on Real Pareto Fronts)
 
-| Dimension ($M$) | Population ($N$) | CPU Baseline | EmoPyLab Vectorized Kernel | **Speedup** |
-|:---:|:---:|:---:|:---:|:---:|
-| **$M = 3$** | $N = 100$ | 1.55 ms | 0.61 ms | **2.55×** |
-| **$M = 3$** | $N = 500$ | 15.19 ms | 1.30 ms | **11.68×** |
-| **$M = 3$** | $N = 1000$ | 72.10 ms | 3.77 ms | **19.14×** |
-| **$M = 5$** | $N = 1000$ | 93.91 ms | 4.95 ms | **18.97×** |
-| **$M = 8$** | $N = 1000$ | 138.70 ms | 6.02 ms | **23.04×** |
-| **$M = 10$** | $N = 1000$ | 169.07 ms | 8.97 ms | **18.86×** |
-| **$M = 15$** | $N = 1000$ | 257.46 ms | 13.84 ms | **18.60×** |
-
+| Problem | Objectives ($M$) | Actual Population ($N$) | CPU Baseline (NumPy) | GPU Tensor Kernel (Tesla V100) | **Speedup** | Fast-MC Hypervolume |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **DTLZ2** | $M = 3$ | $N = 395$ | 3.57 ms | 0.44 ms | **8.09×** | 0.044 s |
+| **DTLZ2** | $M = 5$ | $N = 495$ | 4.74 ms | 0.33 ms | **14.36×** | 0.236 s |
+| **MaF1** | $M = 8$ | $N = 450$ | 6.71 ms | 0.33 ms | **20.53×** | 0.304 s |
+| **MaF1** | $M = 10$ | $N = 440$ | 7.82 ms | 0.33 ms | **23.45×** | 0.385 s |
+| **MaF1** | $M = 15$ | $N = 240$ | 4.35 ms | 0.18 ms | **24.11×** | 0.224 s |
 ### 2. High-Dimensional Hypervolume Scaling ($M > 4$)
 
 | Dimension ($M$) | Sample Size ($N$) | Exact Algorithm | EmoPyLab Fast-MC Engine | Status |
