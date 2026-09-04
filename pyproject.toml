@@ -1,0 +1,93 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "emopylab"
+version = "1.0.2"
+description = "A tensor-native, hardware-accelerated laboratory for multi- and many-objective evolutionary optimization, reproducible benchmarking, and post-hoc MCDM."
+readme = "README.md"
+authors = [
+    { name = "Thiago F. Santos", email = "santostf@ufop.edu.br" }
+]
+license = { text = "MIT" }
+keywords = [
+    "evolutionary-computation",
+    "multi-objective-optimization",
+    "many-objective-optimization",
+    "jax-acceleration",
+    "tensor-native",
+    "reproducibility",
+    "mcdm",
+    "benchmarking"
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=2.3,<2.5",
+    "numba>=0.66,<0.67",
+    "scipy>=1.16,<2",
+    "matplotlib>=3.10,<4",
+    "psutil>=7.2,<8",
+]
+
+[project.optional-dependencies]
+gui = [
+    "PySide6>=6.10,<7",
+    "qt-material>=2.17,<3",
+    "qtawesome>=1.3,<2",
+]
+llm = [
+    "llama-cpp-python>=0.3,<1",
+]
+mlx = [
+    "mlx>=0.21.0; sys_platform == 'darwin'",
+    "mlx-lm>=0.21,<1; sys_platform == 'darwin'",
+]
+jax = [
+    "jax>=0.9,<1",
+    "jaxlib>=0.9,<1",
+]
+torch = [
+    "torch>=2.0,<3",
+]
+cupy = [
+    "cupy-cuda12x>=13,<14",
+]
+dev = [
+    "pytest>=9,<10",
+    "scikit-learn>=1.8,<2",
+]
+all = [
+    "PySide6>=6.10,<7",
+    "qt-material>=2.17,<3",
+    "qtawesome>=1.3,<2",
+    "llama-cpp-python>=0.3,<1",
+    "pytest>=9,<10",
+    "scikit-learn>=1.8,<2",
+]
+
+[project.scripts]
+emopylab-gui = "EmoPyLab:main"
+emopylabgui = "emopylabgui:main"
+emopylab = "core.cli:main"
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core*", "algorithms*", "metrics*", "operators*", "problems*", "util*"]
+exclude = ["tests*", "scripts*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+pythonpath = ["."]
