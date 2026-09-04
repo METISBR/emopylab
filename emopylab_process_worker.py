@@ -19,8 +19,8 @@ from typing import Any
 import numpy as np
 
 
-_ALLOWED_ALGO_PREFIXES = ("algorithms.", "core.", "pymoo.")
-_ALLOWED_PROBLEM_PREFIXES = ("problems.", "core.", "pymoo.")
+_ALLOWED_ALGO_PREFIXES = ("algorithms.", "core.")
+_ALLOWED_PROBLEM_PREFIXES = ("problems.", "core.")
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +223,7 @@ def run_trial_in_process(
     problem = None
     backend_code = "cpu"
     backend_label = "CPU"
-    if problem_source in ("emopylab", "builtin", "local", "pymoo"):
+    if problem_source in ("emopylab", "builtin", "local"):
         try:
             from problems import get_problem
             problem = get_problem(problem_name, **problem_kwargs)

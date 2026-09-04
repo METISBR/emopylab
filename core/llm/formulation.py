@@ -30,7 +30,7 @@ class LLMFormulationService:
         ast.Nonlocal,
         ast.Lambda,
     )
-    _ALLOWED_IMPORT_ROOTS = {"numpy", "pymoo", "jax", "typing", "math", "metrics", "problems"}
+    _ALLOWED_IMPORT_ROOTS = {"numpy", "core", "jax", "typing", "math", "metrics", "problems"}
     _PROMPT_SIGNATURE_MARKER = "emopylab prompt engineering"
     _BLOCKED_CALL_NAMES = {"open", "eval", "exec", "compile", "__import__", "input", "breakpoint"}
     _BLOCKED_ATTR_CALLS = {
@@ -404,7 +404,7 @@ class LLMFormulationService:
         )
         return (
             "import numpy as np\n"
-            "from pymoo.core.problem import Problem\n\n\n"
+            "from core.problem import Problem\n\n\n"
             f"class {class_name}(Problem):\n"
             "    def __init__(self) -> None:\n"
             "        super().__init__(\n"
@@ -446,7 +446,7 @@ class LLMFormulationService:
         )
         return (
             "import numpy as np\n"
-            "from pymoo.core.problem import Problem\n\n"
+            "from core.problem import Problem\n\n"
             "try:\n"
             "    import jax.numpy as jnp\n"
             "except Exception:  # noqa: BLE001\n"
@@ -1061,8 +1061,8 @@ class LLMFormulationService:
         if str(artifact_type).lower() == "problem":
             try:
                 payload["assumptions"] = list(payload.get("assumptions", [])) + [
-                    "Use pymoo.core.problem.Problem with vectorized _evaluate(self, X, out, *args, **kwargs) and out['F'].",
-                    "Use pymoo constraint API n_ieq_constr/n_eq_constr with out['G']/out['H'] when constraints are present.",
+                    "Use core.problem.Problem with vectorized _evaluate(self, X, out, *args, **kwargs) and out['F'].",
+                    "Use constraint API n_ieq_constr/n_eq_constr with out['G']/out['H'] when constraints are present.",
                 ]
                 payload["invariants"] = list(payload.get("invariants", [])) + [
                     "Return plugin modules only (no __main__ demo/test harness).",
@@ -1086,7 +1086,7 @@ class LLMFormulationService:
     ) -> dict[str, Any]:
         n_var_default, n_obj_default = cls._normalize_problem_ui_defaults(n_var, n_obj)
         system_prompt = (
-            "Act as a senior software engineer specialized in pymoo, PlatEMO, and optimization frameworks. "
+            "Act as a senior software engineer specialized in PlatEMO and optimization frameworks. "
             "Produce a compact specification JSON for code generation. Return strict JSON only."
         )
         user_prompt = (
@@ -1359,26 +1359,26 @@ class LLMFormulationService:
             cpu_symbol = safe_base
             jax_symbol = f"{safe_base}_JAX"
             system_prompt = (
-                "Act as a senior software engineer specialized in pymoo, PlatEMO, and optimization frameworks. "
-                "You write safe, vectorized Python code for pymoo Problem subclasses. "
-                "Use pymoo's current Problem/constraint APIs (`out['F']`, `n_ieq_constr`/`n_eq_constr`, `out['G']`/`out['H']`). "
-                "Do not emit thin wrappers around native pymoo problems or local canonical benchmark classes. "
+                "Act as a senior software engineer specialized in PlatEMO and optimization frameworks. "
+                "You write safe, vectorized Python code for EmoPyLab Problem subclasses. "
+                "Use EmoPyLab's current Problem/constraint APIs (`out['F']`, `n_ieq_constr`/`n_eq_constr`, `out['G']`/`out['H']`). "
+                "Do not emit thin wrappers around local canonical benchmark classes. "
                 "Do not include `if __name__ == '__main__':` or demo code. "
                 "Return a strict JSON object with cpu_code and jax_code as strings. "
                 "No prose, no markdown, no file I/O, no subprocess, no network code."
             )
             user_prompt = (
-                f"Generate two Python modules for pymoo problems based on this requirement:\n{str(prompt or '').strip()}\n\n"
+                f"Generate two Python modules for EmoPyLab problems based on this requirement:\n{str(prompt or '').strip()}\n\n"
                 f"CPU class name: {cpu_symbol}. JAX class name: {jax_symbol}.\n"
                 f"UI defaults: n_var={n_var_default}, n_obj={n_obj_default}.\n"
-                "Both modules must import Problem from pymoo.core.problem and subclass it.\n"
+                "Both modules must import Problem from core.problem and subclass it.\n"
                 "Both modules must use vectorized _evaluate(self, X, out, *args, **kwargs) setting out['F'].\n"
                 "Return JSON only with keys cpu_code and jax_code."
             )
         else:
             safe_base = cls._slugify_module_name(raw_base, default="generated_metric")
             system_prompt = (
-                "Act as a senior software engineer specialized in pymoo, PlatEMO, and optimization frameworks. "
+                "Act as a senior software engineer specialized in PlatEMO and optimization frameworks. "
                 "You write safe Python code for EmoPyLab metric modules. "
                 "Each module must expose create_metric(context) returning a callable metric(front)->float. "
                 "Return a strict JSON object with cpu_code and jax_code as strings. "
