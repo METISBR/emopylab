@@ -14,22 +14,33 @@
 
 ---
 
+## Changelog & Release Notes
+
+### [v1.0.1] — 2026-09-03
+* **Supercomputer Benchmarking**: Empirical speedup proof on Santos Dumont (LNCC) NVIDIA Tesla V100 SXM2 GPU vs. Intel Xeon Gold (up to **24.11×** on real Pareto fronts and **514.62×** on massive populations via Boolean Matrix Dominance).
+* **Zero-Pymoo Architecture**: Full standalone migration of algorithms, problems, operators, and metrics to native `core/` tensor representations.
+* **Offline Local AI Formulation**: AI Agent tab running 100% locally via quantized `Qwen 2.5 0.5B GGUF` with strict AST safety analysis; decommissioned external cloud APIs.
+* **5-Tier Hardware Backend**: Formalized packaging extras for `cupy` (CUDA 12.x), `torch` (CUDA/MPS), `jax`, and `mlx` in `pyproject.toml`.
+* **Scientific Documentation**: Published comprehensive 16-page `EmoPyLab_Manual_METISBr.pdf` technical reference.
+
+---
+
 ## Table of Contents
 
-
-1. [Overview & Core Value Proposition](#overview--core-value-proposition)
-2. [Key Differentiators & Scientific Highlights](#key-differentiators--scientific-highlights)
-3. [Architecture & Design Principles](#architecture--design-principles)
-4. [Hardware Acceleration & Benchmarks](#hardware-acceleration--benchmarks)
-5. [Installation & Requirements](#installation--requirements)
-6. [Quickstart Guide (Headless & Python API)](#quickstart-guide-headless--python-api)
-7. [Desktop Workstation GUI](#desktop-workstation-gui)
-8. [Multi-Criteria Decision Making (MCDM)](#multi-criteria-decision-making-mcdm)
-9. [Statistical Inference & LaTeX Table Synthesis](#statistical-inference--latex-table-synthesis)
-10. [Algorithm & Problem Catalog Taxonomy](#algorithm--problem-catalog-taxonomy)
-11. [Testing & Quality Assurance](#testing--quality-assurance)
-12. [Citation](#citation)
-13. [License](#license)
+1. [Changelog & Release Notes](#changelog--release-notes)
+2. [Overview & Core Value Proposition](#overview--core-value-proposition)
+3. [Key Differentiators & Scientific Highlights](#key-differentiators--scientific-highlights)
+4. [Architecture & Design Principles](#architecture--design-principles)
+5. [Hardware Acceleration & Benchmarks](#hardware-acceleration--benchmarks)
+6. [Installation & Requirements](#installation--requirements)
+7. [Quickstart Guide (Headless & Python API)](#quickstart-guide-headless--python-api)
+8. [Desktop Workstation GUI](#desktop-workstation-gui)
+9. [Multi-Criteria Decision Making (MCDM)](#multi-criteria-decision-making-mcdm)
+10. [Statistical Inference & LaTeX Table Synthesis](#statistical-inference--latex-table-synthesis)
+11. [Algorithm & Problem Catalog Taxonomy](#algorithm--problem-catalog-taxonomy)
+12. [Testing & Quality Assurance](#testing--quality-assurance)
+13. [Citation](#citation)
+14. [License](#license)
 
 ---
 
