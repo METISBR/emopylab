@@ -18,7 +18,7 @@
 
 ### [v1.0.1] — 2026-09-03
 * **Supercomputer Benchmarking**: Empirical speedup proof on Santos Dumont (LNCC) NVIDIA Tesla V100 SXM2 GPU vs. Intel Xeon Gold (up to **24.11×** on real Pareto fronts and **514.62×** on massive populations via Boolean Matrix Dominance).
-* **Zero-Pymoo Architecture**: Full standalone migration of algorithms, problems, operators, and metrics to native `core/` tensor representations.
+* **Standalone Tensor Architecture**: Native `core/` tensor execution engine for algorithms, problems, operators, and metrics — no external optimization framework required.
 * **Offline Local AI Formulation**: AI Agent tab running 100% locally via quantized `Qwen 2.5 0.5B GGUF` with strict AST safety analysis; decommissioned external cloud APIs.
 * **5-Tier Hardware Backend**: Formalized packaging extras for `cupy` (CUDA 12.x), `torch` (CUDA/MPS), `jax`, and `mlx` in `pyproject.toml`.
 * **Scientific Documentation**: Published comprehensive 16-page `EmoPyLab_Manual_METISBr.pdf` technical reference.
