@@ -6,12 +6,30 @@
 
 [![Research Group](https://img.shields.io/badge/Research_Group-METISBr-blue.svg)](https://metisbr.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/METISBR/emopylab/blob/main/LICENSE)
+[![Preprint: SSRN](https://img.shields.io/badge/Preprint-SSRN%207412768-b31b1b.svg)](https://ssrn.com/abstract=7412768)
+[![DOI](https://img.shields.io/badge/DOI-10.2139%2Fssrn.7412768-blue.svg)](https://doi.org/10.2139/ssrn.7412768)
 
 > **Author:** Professor Thiago Santos — Federal University of Ouro Preto (UFOP), Brazil  
 > **Group:** [METISBr — Multi-Objective and Many-Objective Optimization Research](https://metisbr.com)  
 > **Website:** [metisbr.com](https://metisbr.com)  
-> **Contact:** `santostf+metisbr@ufop.edu.br`
+> **Contact:** `santostf+metisbr@ufop.edu.br`  
+> **Paper Under Review:** *EmoPyLab: A Tensor-Native, Hardware-Accelerated Laboratory for High-Throughput Benchmarking and Decision-Making in Multi/Many-Objective Optimization* ([SSRN: 7412768](https://ssrn.com/abstract=7412768) | [DOI: 10.2139/ssrn.7412768](https://doi.org/10.2139/ssrn.7412768))
 
+> [!NOTE]
+> ### How to Cite (While Paper is Under Review)
+> If you utilize **EmoPyLab** in your scientific research, algorithms, or benchmark evaluations, please cite the SSRN preprint:
+>
+> ```bibtex
+> @article{santos2026emopylab,
+>   author  = {Santos, Thiago and Xavier, Sebasti{\~a}o},
+>   title   = {{EmoPyLab}: A Tensor-Native, Hardware-Accelerated Laboratory for High-Throughput Benchmarking and Decision-Making in Multi/Many-Objective Optimization},
+>   journal = {Available at SSRN},
+>   year    = {2026},
+>   doi     = {10.2139/ssrn.7412768},
+>   url     = {https://ssrn.com/abstract=7412768},
+>   note    = {Available at SSRN: \url{https://ssrn.com/abstract=7412768} or \url{http://dx.doi.org/10.2139/ssrn.7412768}}
+> }
+> ```
 ---
 
 ## Changelog & Release Notes
