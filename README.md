@@ -316,17 +316,21 @@ If you utilize **EmoPyLab** in your scientific research, algorithms, or benchmar
 
 ```bibtex
 @article{santos2026emopylab,
-  title   = {{EmoPyLab: A Tensor-Native, Hardware-Accelerated Laboratory for High-Throughput Benchmarking and Decision-Making in Many-Objective Optimization}},
   author  = {Santos, Thiago and Xavier, Sebasti{\~a}o},
-  journal = {Swarm and Evolutionary Computation (under review)},
+  title   = {{EmoPyLab}: A Tensor-Native, Hardware-Accelerated Laboratory for High-Throughput Benchmarking and Decision-Making in Multi/Many-Objective Optimization},
+  journal = {Available at SSRN},
   year    = {2026},
-  url     = {https://github.com/METISBR/emopylab}
+  doi     = {10.2139/ssrn.7412768},
+  url     = {https://ssrn.com/abstract=7412768},
+  note    = {Available at SSRN: \url{https://ssrn.com/abstract=7412768} or \url{http://dx.doi.org/10.2139/ssrn.7412768}}
 }
 
 @software{Santos_EmoPyLab_2026,
   author  = {Santos, Thiago and Xavier, Sebasti{\~a}o},
   title   = {{EmoPyLab: A High-Throughput Benchmarking Ecosystem and Open-Source Decision Platform for Evolutionary Many-Objective Optimization}},
+  month   = {9},
   year    = {2026},
+  version = {1.0.2},
   url     = {https://github.com/METISBR/emopylab},
   license = {MIT}
 }

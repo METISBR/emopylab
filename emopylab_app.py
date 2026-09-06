@@ -6351,10 +6351,10 @@ class EmoPyLabMainWindow(QMainWindow):
                 "group</a> (Multi-Objective and Many-Objective Optimization "
                 "Research), Federal University of Ouro Preto (UFOP), Brazil.<br><br>"
                 "If EmoPyLab contributes to your published work, please cite the "
-                "arXiv preprint listed in the README "
-                "(<i>EmoPyLab: An Open-Source Visual Analytics Framework for "
-                "Multi-Objective Optimization using LLM-Based Code Generation "
-                "and MCDM</i>).<br><br>"
+                "preprint listed in CITATION.bib / README "
+                "(<i>EmoPyLab: A Tensor-Native, Hardware-Accelerated Laboratory for "
+                "High-Throughput Benchmarking and Decision-Making in Multi/Many-Objective "
+                "Optimization</i>, Available at SSRN, DOI: 10.2139/ssrn.7412768).<br><br>"
                 'Website: <a href="https://metisbr.com">metisbr.com</a>'
             ),
         )
@@ -6988,6 +6988,8 @@ class EmoPyLabMainWindow(QMainWindow):
         self.llm_metric_mode_summary_label.setText(
             "Metric generation runs on the local Qwen model, then validates CPU/JAX runtime parity."
         )
+
+    def _sync_llm_problem_scope_tab_from_n_obj(self) -> None:
         if getattr(self, "llm_problem_scope_combo", None) is None or getattr(self, "llm_n_obj_spin", None) is None:
             return
         target_token = self._llm_problem_scope_token_from_n_obj(int(self.llm_n_obj_spin.value()))
