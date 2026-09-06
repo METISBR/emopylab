@@ -15,21 +15,21 @@
 > **Contact:** `santostf+metisbr@ufop.edu.br`  
 > **Paper Under Review:** *EmoPyLab: A Tensor-Native, Hardware-Accelerated Laboratory for High-Throughput Benchmarking and Decision-Making in Multi/Many-Objective Optimization* ([SSRN: 7412768](https://ssrn.com/abstract=7412768) | [DOI: 10.2139/ssrn.7412768](https://doi.org/10.2139/ssrn.7412768))
 
-> [!NOTE]
-> ### How to Cite (While Paper is Under Review)
-> If you utilize **EmoPyLab** in your scientific research, algorithms, or benchmark evaluations, please cite the SSRN preprint:
->
-> ```bibtex
-> @article{santos2026emopylab,
->   author  = {Santos, Thiago and Xavier, Sebasti{\~a}o},
->   title   = {{EmoPyLab}: A Tensor-Native, Hardware-Accelerated Laboratory for High-Throughput Benchmarking and Decision-Making in Multi/Many-Objective Optimization},
->   journal = {Available at SSRN},
->   year    = {2026},
->   doi     = {10.2139/ssrn.7412768},
->   url     = {https://ssrn.com/abstract=7412768},
->   note    = {Available at SSRN: \url{https://ssrn.com/abstract=7412768} or \url{http://dx.doi.org/10.2139/ssrn.7412768}}
-> }
-> ```
+### 📄 How to Cite (BibTeX — Paper Under Review)
+
+If you utilize **EmoPyLab** in your scientific research, algorithms, or benchmark evaluations, please cite the SSRN preprint (1-click copy below or see [CITATION.bib](CITATION.bib)):
+
+```bibtex
+@article{santos2026emopylab,
+  author  = {Santos, Thiago and Xavier, Sebasti{\~a}o},
+  title   = {{EmoPyLab}: A Tensor-Native, Hardware-Accelerated Laboratory for High-Throughput Benchmarking and Decision-Making in Multi/Many-Objective Optimization},
+  journal = {Available at SSRN},
+  year    = {2026},
+  doi     = {10.2139/ssrn.7412768},
+  url     = {https://ssrn.com/abstract=7412768},
+  note    = {Available at SSRN: \url{https://ssrn.com/abstract=7412768} or \url{http://dx.doi.org/10.2139/ssrn.7412768}}
+}
+```
 ---
 
 ## Changelog & Release Notes
