@@ -1,3 +1,8 @@
+import numpy as np
+if not hasattr(np, "Inf"):
+    np.Inf = np.inf
+if not hasattr(np, "NaN"):
+    np.NaN = np.nan
 # -*- coding: utf-8 -*-
 """EmoPyLab Metrics Package."""
 

@@ -27,7 +27,7 @@ def boolean_matrix_nds(F_tensor: Any, CV_tensor: Any = None) -> list[np.ndarray]
     # 1. Detect tensor framework and compute Pareto dominance matrix on device
     is_torch = "torch" in type(F_tensor).__module__
     is_mlx = "mlx" in type(F_tensor).__module__
-
+    is_cupy = "cupy" in type(F_tensor).__module__
     if is_torch:
         import torch
         F = F_tensor
@@ -67,6 +67,25 @@ def boolean_matrix_nds(F_tensor: Any, CV_tensor: Any = None) -> list[np.ndarray]
             dom_matrix = dom_feas | dom_infeas | dom_obj
 
         dom_np = np.array(dom_matrix)
+    elif is_cupy:
+        import cupy as cp
+        F = F_tensor
+        le = F[:, None, :] <= F[None, :, :]
+        lt = F[:, None, :] < F[None, :, :]
+        dom_matrix = cp.all(le, axis=-1) & cp.any(lt, axis=-1)
+
+        if CV_tensor is not None:
+            cv = CV_tensor.squeeze(-1) if CV_tensor.ndim > 1 else CV_tensor
+            cv_i = cv[:, None]
+            cv_j = cv[None, :]
+            feas_i = cv_i <= 1e-8
+            feas_j = cv_j <= 1e-8
+            dom_feas = feas_i & (~feas_j)
+            dom_infeas = (~feas_i) & (~feas_j) & (cv_i < cv_j)
+            dom_obj = feas_i & feas_j & dom_matrix
+            dom_matrix = dom_feas | dom_infeas | dom_obj
+
+        dom_np = cp.asnumpy(dom_matrix)
 
     else:
         F = np.asarray(to_numpy(F_tensor), dtype=np.float32)
