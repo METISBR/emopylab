@@ -1,8 +1,27 @@
 import numpy as np
-from scipy.spatial.distance import pdist, squareform
+
+try:
+    from scipy.spatial.distance import pdist, squareform
+except Exception:
+    def pdist(X: np.ndarray, metric: str = "euclidean") -> np.ndarray:
+        diff = X[:, None, :] - X[None, :, :]
+        if metric == "sqeuclidean":
+            d = np.sum(diff ** 2, axis=2)
+        else:
+            d = np.linalg.norm(diff, axis=2)
+        i_idx, j_idx = np.triu_indices(len(X), k=1)
+        return d[i_idx, j_idx]
+
+    def squareform(d: np.ndarray) -> np.ndarray:
+        n = int((1 + np.sqrt(1 + 8 * len(d))) / 2)
+        matrix = np.zeros((n, n), dtype=d.dtype)
+        i_idx, j_idx = np.triu_indices(n, k=1)
+        matrix[i_idx, j_idx] = d
+        matrix[j_idx, i_idx] = d
+        return matrix
+
 from util.misc import find_duplicates
 from util.functions import load_function
-
 
 def get_crowding_function(label):
 

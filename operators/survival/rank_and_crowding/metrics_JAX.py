@@ -8,7 +8,10 @@ try:
 except Exception:
     import numpy as np
     _HAS_JAX = False
-from scipy.spatial.distance import pdist, squareform
+try:
+    from scipy.spatial.distance import pdist, squareform
+except Exception:
+    pdist, squareform = None, None
 from util.misc import find_duplicates
 from util.functions import load_function
 
