@@ -18,12 +18,18 @@ from metrics.evaluator import (
     evaluate_front,
     r2_indicator,
 )
-from metrics.kkt_indicators import (
-    compute_kkt_residuals,
-    calc_h_old,
-    calc_h_adap,
-    analyze_quantile_sensitivity,
-)
+try:
+    from metrics.kkt_indicators import (
+        compute_kkt_residuals,
+        calc_h_old,
+        calc_h_adap,
+        analyze_quantile_sensitivity,
+    )
+except Exception:
+    compute_kkt_residuals = None
+    calc_h_old = None
+    calc_h_adap = None
+    analyze_quantile_sensitivity = None
 
 # Aliases
 igd = inverted_generational_distance
