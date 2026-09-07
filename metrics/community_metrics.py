@@ -122,7 +122,7 @@ def _pairwise_euclidean(a: Any, b: Any) -> np.ndarray:
     try:
         from scipy.spatial.distance import cdist
         return np.asarray(cdist(aa, bb, metric='euclidean'), dtype=float)
-    except ImportError:
+    except Exception:
         diff = aa[:, None, :] - bb[None, :, :]
         return np.linalg.norm(diff, axis=2)
 
@@ -775,7 +775,7 @@ def _metric_PD(front: np.ndarray, context: dict[str, Any]) -> float:
             D_full = _pairwise_minkowski(pop_all, pop_all, p=0.1)
             mst = minimum_spanning_tree(D_full)
             return float(mst.sum())
-        except ImportError:
+        except Exception:
             pass  # Fall through to original algorithm
 
     C = np.eye(n, dtype=bool)
