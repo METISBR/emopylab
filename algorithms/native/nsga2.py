@@ -84,9 +84,9 @@ class NativeNSGA2:
 
         # 2. Main generational loop
         for gen in range(1, n_gen + 1):
-            # Evaluate fronts via ENS or Boolean NDS
+            # Evaluate fronts via accelerated Boolean Matrix NDS on device
+            fronts = boolean_matrix_nds(pop.F, pop.CV)
             F_cpu = to_numpy(pop.F)
-            fronts = efficient_non_dominated_sort(F_cpu)
 
             # Assign ranks and crowding
             ranks = np.zeros(N, dtype=np.int32)
@@ -128,10 +128,9 @@ class NativeNSGA2:
 
             # Merge 2N pool
             merged = TensorPopulation.merge(pop, offspring_pop)
+            # Accelerated Boolean Matrix NDS on device (with constraint violations)
+            merged_fronts = boolean_matrix_nds(merged.F, merged.CV)
             merged_F_cpu = to_numpy(merged.F)
-            merged_fronts = efficient_non_dominated_sort(merged_F_cpu)
-
-            # Environmental selection (2N -> N)
             survivor_indices = []
             for front in merged_fronts:
                 if len(survivor_indices) + len(front) <= N:

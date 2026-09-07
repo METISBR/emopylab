@@ -78,6 +78,12 @@ TIER_1_NATIVE_REGISTRY: dict[str, dict[str, Any]] = {
         "year": 2025,
         "flags": {"surrogate", "grid", "expensive"},
     },
+    "tc_maoea": {
+        "name": "TC-MaOEA",
+        "reference": "Tangent-Coupled Many-Objective Evolutionary Algorithm",
+        "year": 2026,
+        "flags": {"many", "multi", "real", "tangent_bundle", "manifold"},
+    },
 }
 
 

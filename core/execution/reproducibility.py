@@ -24,6 +24,36 @@ def _positive_int(value: Any, default: int, *, minimum: int = 1) -> int:
 
 def _random_seed() -> int:
     return int(np.random.default_rng().integers(1, 2_147_483_647))
+def seed_all_hardware_backends(seed: int) -> None:
+    """Synchronously initialize PRNG state across NumPy, PyTorch (CPU/CUDA/ROCm/MPS), and Apple MLX."""
+    seed_val = int(seed) % (2**31 - 1)
+    if seed_val <= 0:
+        seed_val = 1
+
+    # 1. NumPy CPU PRNG
+    np.random.seed(seed_val)
+
+    # 2. PyTorch (CUDA / ROCm / MPS / CPU)
+    try:
+        import torch
+        torch.manual_seed(seed_val)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed_val)
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            try:
+                torch.mps.manual_seed(seed_val)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # 3. Apple MLX
+    try:
+        import mlx.core as mx
+        mx.random.seed(seed_val)
+    except Exception:
+        pass
+
 
 
 def _normalize_seed_value(value: Any, default: int = 1) -> int:

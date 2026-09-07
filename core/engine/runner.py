@@ -248,8 +248,8 @@ def run_single_optimization(
         OptimizationResult dataclass containing non-dominated solutions and metrics.
     """
     t_start = time.perf_counter()
-    np.random.seed(seed)
-
+    from core.execution.reproducibility import seed_all_hardware_backends
+    seed_all_hardware_backends(seed)
     try:
         problem = _resolve_problem_instance(problem_name, n_var=n_var, n_obj=n_obj)
         algo_kwargs = custom_algo_params or {}

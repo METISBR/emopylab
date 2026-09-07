@@ -69,67 +69,66 @@ class NativeMOEAD:
 
         z_ideal = np.min(to_numpy(pop.F), axis=0)
 
-        # 3. Main Generational Loop (Decomposition Replacement)
+        # 3. Main Generational Loop (Vectorized Decomposition Replacement)
+        is_torch = "torch" in type(pop.X).__module__
+        is_mlx = "mlx" in type(pop.X).__module__
         rng = np.random.default_rng(seed)
 
         for gen in range(1, n_gen + 1):
-            perm = rng.permutation(N)
-            for i in perm:
-                # Select mating pool: neighborhood or whole population
-                if rng.random() < self.prob_neighbor_mating:
-                    pool = neighborhoods[i]
-                else:
-                    pool = np.arange(N)
+            # Batch parent selection for all N subproblems
+            p1_indices = np.empty(N, dtype=np.int64)
+            p2_indices = np.empty(N, dtype=np.int64)
+            rand_choices = rng.random(N)
 
-                parents_idx = rng.choice(pool, size=2, replace=False)
-                p1 = index_tensor(pop.X, parents_idx[0:1])
-                p2 = index_tensor(pop.X, parents_idx[1:2])
+            for i in range(N):
+                pool = neighborhoods[i] if rand_choices[i] < self.prob_neighbor_mating else np.arange(N)
+                chosen = rng.choice(pool, size=2, replace=False)
+                p1_indices[i] = chosen[0]
+                p2_indices[i] = chosen[1]
 
-                # Generate offspring
-                off1, _ = sbx_crossover_tensor(
-                    p1, p2, problem.xl_dev, problem.xu_dev,
-                    eta=self.crossover_eta, prob=self.crossover_prob, seed=seed + gen * N + i,
-                )
-                off1 = polynomial_mutation_tensor(
-                    off1, problem.xl_dev, problem.xu_dev,
-                    eta=self.mutation_eta, prob_var=self.mutation_prob, seed=seed + gen * N + i + 1,
-                )
+            p1_batch = index_tensor(pop.X, p1_indices)
+            p2_batch = index_tensor(pop.X, p2_indices)
 
-                f_off, g_off = problem.evaluate(off1)
-                f_off_cpu = to_numpy(f_off)[0]
+            # Vectorized Batch Crossover and Mutation on GPU
+            offspring_X, _ = sbx_crossover_tensor(
+                p1_batch, p2_batch, problem.xl_dev, problem.xu_dev,
+                eta=self.crossover_eta, prob=self.crossover_prob, seed=seed + gen * N,
+            )
+            offspring_X = polynomial_mutation_tensor(
+                offspring_X, problem.xl_dev, problem.xu_dev,
+                eta=self.mutation_eta, prob_var=self.mutation_prob, seed=seed + gen * N + 1,
+            )
 
-                # Update Ideal Point
-                z_ideal = np.minimum(z_ideal, f_off_cpu)
+            # Batch Evaluation on GPU
+            offspring_F, offspring_G = problem.evaluate(offspring_X)
 
-                # Tchebycheff Scalarization Replacement
+            # Update Ideal Point
+            f_off_cpu = to_numpy(offspring_F)
+            z_ideal = np.minimum(z_ideal, np.min(f_off_cpu, axis=0))
+
+            # Vectorized Tchebycheff Replacement
+            F_cpu = to_numpy(pop.F)
+            X_cpu = to_numpy(pop.X)
+            x_off_cpu = to_numpy(offspring_X)
+
+            for i in range(N):
                 neigh = neighborhoods[i]
-                W_neigh = W[neigh]
-                F_neigh = to_numpy(pop.F)[neigh]
+                w_neigh = W[neigh]
+                f_neigh = F_cpu[neigh]
+                f_cand = f_off_cpu[i]
 
-                # Current Tchebycheff value
-                gte_current = np.max(W_neigh * np.abs(F_neigh - z_ideal), axis=1)
-                # Offspring Tchebycheff value
-                gte_off = np.max(W_neigh * np.abs(f_off_cpu - z_ideal), axis=1)
+                gte_current = np.max(w_neigh * np.abs(f_neigh - z_ideal), axis=1)
+                gte_off = np.max(w_neigh * np.abs(f_cand - z_ideal), axis=1)
 
-                # Replace better solutions
                 replace_mask = gte_off < gte_current
-                for idx_replace, should_replace in zip(neigh, replace_mask):
-                    if should_replace:
-                        try:
-                            pop.X[idx_replace] = off1[0]
-                            pop.F[idx_replace] = f_off[0]
-                        except Exception:
-                            if hasattr(pop.X, "at") and hasattr(pop.X.at[idx_replace], "set"):
-                                pop.X = pop.X.at[idx_replace].set(off1[0])
-                                pop.F = pop.F.at[idx_replace].set(f_off[0])
-                            else:
-                                X_np = to_numpy(pop.X).copy()
-                                F_np = to_numpy(pop.F).copy()
-                                X_np[idx_replace] = to_numpy(off1[0])
-                                F_np[idx_replace] = to_numpy(f_off[0])
-                                pop.X = to_device(X_np)
-                                pop.F = to_device(F_np)
+                for idx_rep, should_rep in zip(neigh, replace_mask):
+                    if should_rep:
+                        X_cpu[idx_rep] = x_off_cpu[i]
+                        F_cpu[idx_rep] = f_cand
 
+            # Re-upload updated population to device tensor once per generation
+            pop.X = to_device(X_cpu)
+            pop.F = to_device(F_cpu)
         t_elapsed = time.perf_counter() - t_start
         F_final = to_numpy(pop.F)
         X_final = to_numpy(pop.X)

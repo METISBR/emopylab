@@ -217,6 +217,68 @@ class MetricEvaluator:
 
         normalized_name = name.upper().replace("_", "").replace("-", "")
 
+        # Check for active hardware accelerator (MLX on Apple Silicon or PyTorch on CUDA/MPS)
+        backend = ctx.get("backend")
+        if backend is None:
+            try:
+                from core.tensor.backend import get_backend_type
+                backend = get_backend_type()
+            except Exception:
+                backend = "numpy"
+
+        if backend == "mlx":
+            try:
+                from metrics.community_metrics_MLX import METRICS as MLX_METRICS
+                if normalized_name in {"IGD", "INVERTEDGENERATIONALDISTANCE"} and "IGD_MLX" in MLX_METRICS:
+                    val = MLX_METRICS["IGD_MLX"](front, ctx)
+                    if not np.isnan(val):
+                        return val
+                elif normalized_name in {"IGDP", "IGDPLUS"} and "IGDp_MLX" in MLX_METRICS:
+                    val = MLX_METRICS["IGDp_MLX"](front, ctx)
+                    if not np.isnan(val):
+                        return val
+                elif normalized_name in {"GD", "GENERATIONALDISTANCE"} and "GD_MLX" in MLX_METRICS:
+                    val = MLX_METRICS["GD_MLX"](front, ctx)
+                    if not np.isnan(val):
+                        return val
+                elif normalized_name in {"SPACING"} and "Spacing_MLX" in MLX_METRICS:
+                    val = MLX_METRICS["Spacing_MLX"](front, ctx)
+                    if not np.isnan(val):
+                        return val
+                elif normalized_name in {"DELTAP", "DELTAPLUS", "HAUSDORFF"} and "DeltaP_MLX" in MLX_METRICS:
+                    val = MLX_METRICS["DeltaP_MLX"](front, ctx)
+                    if not np.isnan(val):
+                        return val
+            except Exception:
+                pass
+
+        elif backend == "torch":
+            try:
+                from metrics.community_metrics_Torch import METRICS as TORCH_METRICS
+                if normalized_name in {"IGD", "INVERTEDGENERATIONALDISTANCE"} and "IGD_Torch" in TORCH_METRICS:
+                    val = TORCH_METRICS["IGD_Torch"](front, ctx)
+                    if not np.isnan(val):
+                        return val
+                elif normalized_name in {"IGDP", "IGDPLUS"} and "IGDp_Torch" in TORCH_METRICS:
+                    val = TORCH_METRICS["IGDp_Torch"](front, ctx)
+                    if not np.isnan(val):
+                        return val
+                elif normalized_name in {"GD", "GENERATIONALDISTANCE"} and "GD_Torch" in TORCH_METRICS:
+                    val = TORCH_METRICS["GD_Torch"](front, ctx)
+                    if not np.isnan(val):
+                        return val
+                elif normalized_name in {"SPACING"} and "Spacing_Torch" in TORCH_METRICS:
+                    val = TORCH_METRICS["Spacing_Torch"](front, ctx)
+                    if not np.isnan(val):
+                        return val
+                elif normalized_name in {"DELTAP", "DELTAPLUS", "HAUSDORFF"} and "DeltaP_Torch" in TORCH_METRICS:
+                    val = TORCH_METRICS["DeltaP_Torch"](front, ctx)
+                    if not np.isnan(val):
+                        return val
+            except Exception:
+                pass
+
+        # Standard CPU NumPy fallback paths
         if normalized_name in {"IGD", "INVERTEDGENERATIONALDISTANCE"}:
             if pf_arr is None or pf_arr.size == 0:
                 return float("nan")
@@ -244,7 +306,6 @@ class MetricEvaluator:
                 return float("nan")
             p = float(ctx.get("p", 1.0))
             return averaged_hausdorff_distance(F, pf_arr, p=p)[0]
-
         if normalized_name in {"HV", "HYPERVOLUME", "HVFASTMC"}:
             sample_num = int(ctx.get("hv_mc_samples", 10_000))
             engine = ctx.get("hv_engine") or ctx.get("engine")

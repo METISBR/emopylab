@@ -65,8 +65,7 @@ DEFAULT_GGUF_REPO = "Qwen/Qwen2.5-0.5B-Instruct-GGUF"
 DEFAULT_GGUF_FILE_PATTERN = "*q4_k_m.gguf"
 DEFAULT_TIMEOUT = 15.0
 DEFAULT_TEMPERATURE = 0.3
-DEFAULT_MAX_TOKENS = 200
-
+DEFAULT_MAX_TOKENS = 1024
 
 # ---------------------------------------------------------------------------
 # Backend detection
@@ -353,8 +352,7 @@ class LocalLLMClient:
         self._inprocess: Any = None  # type: ignore[var-annotated]
         # Priority 1: Check if an HTTP server (llama-server or mlx-lm) is already reachable on self.base_url
         probe = probe_openai_models(self.base_url, timeout=0.3)
-        if not probe.ready and use_inprocess_if_available and not is_apple_silicon() \
-                and llama_cpp_python_available():
+        if not probe.ready and use_inprocess_if_available and llama_cpp_python_available():
             try:
                 from llama_cpp import Llama  # type: ignore[import-not-found]
                 # Priority 1A: Strictly use the pre-downloaded local GGUF model in models/ directory
@@ -393,7 +391,7 @@ class LocalLLMClient:
     @property
     def backend_name(self) -> str:
         if self._inprocess is not None:
-            return "llama-cpp-python (in-process)"
+            return "llama-cpp-python (in-process Metal/GPU)" if is_apple_silicon() else "llama-cpp-python (in-process)"
         if is_apple_silicon():
             return "mlx-lm (HTTP server)"
         return "http-fallback"

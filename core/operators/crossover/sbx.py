@@ -22,12 +22,28 @@ def sbx_crossover_tensor(
     """Computes Simulated Binary Crossover (SBX) in a single vectorized GPU tensor operation."""
     xp = get_array_module()
     N, D = parent1.shape
+    is_torch = "torch" in type(parent1).__module__
+    is_mlx = "mlx" in type(parent1).__module__
 
-    rng = np.random.default_rng(seed)
-    do_cross = to_device(rng.random(N) < prob, dtype=bool)
-    do_cross_var = to_device(rng.random((N, D)) < prob_var, dtype=bool)
-    u = to_device(rng.random((N, D)), dtype=np.float32)
-
+    if is_torch:
+        import torch
+        dev = parent1.device
+        do_cross = torch.rand(N, device=dev) < prob
+        do_cross_var = torch.rand((N, D), device=dev) < prob_var
+        u = torch.rand((N, D), device=dev, dtype=torch.float32)
+        xp = torch
+    elif is_mlx:
+        import mlx.core as mx
+        do_cross = mx.random.uniform(0.0, 1.0, shape=(N,)) < prob
+        do_cross_var = mx.random.uniform(0.0, 1.0, shape=(N, D)) < prob_var
+        u = mx.random.uniform(0.0, 1.0, shape=(N, D))
+        xp = mx
+    else:
+        xp = np
+        rng = np.random.default_rng(seed)
+        do_cross = to_device(rng.random(N) < prob, dtype=bool)
+        do_cross_var = to_device(rng.random((N, D)) < prob_var, dtype=bool)
+        u = to_device(rng.random((N, D)), dtype=np.float32)
     # Beta distribution calculation
     beta = xp.where(
         u <= 0.5,

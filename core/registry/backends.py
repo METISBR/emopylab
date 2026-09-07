@@ -16,6 +16,7 @@ from core.execution.backend_runtime import (
     apple_silicon_available,
     detect_gpu_runtime,
     detect_mlx_runtime,
+    detect_torch_runtime,
 )
 
 
@@ -37,6 +38,13 @@ def mlx_available() -> bool:
     except Exception:  # noqa: BLE001
         return False
     return True
+def torch_available() -> bool:
+    try:
+        import torch  # noqa: F401
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
 
 
 def detect_cpu_runtime() -> dict[str, Any]:
@@ -59,11 +67,14 @@ BACKENDS: dict[str, BackendDescriptor] = {
     "cpu": BackendDescriptor(
         "cpu", "CPU (NumPy)", "", "float64", cpu_available, detect_cpu_runtime
     ),
-    "jax": BackendDescriptor(
-        "jax", "JAX", "JAX", "float32", jax_available, detect_gpu_runtime
+    "torch": BackendDescriptor(
+        "torch", "PyTorch (CUDA / MPS / ROCm)", "Torch", "float32", torch_available, detect_torch_runtime
     ),
     "mlx": BackendDescriptor(
         "mlx", "MLX (Apple Silicon)", "MLX", "float32", mlx_available, detect_mlx_runtime
+    ),
+    "jax": BackendDescriptor(
+        "jax", "JAX", "JAX", "float32", jax_available, detect_gpu_runtime
     ),
 }
 
@@ -73,22 +84,37 @@ _BACKEND_ALIASES = {
     "cpu": "cpu",
     "numpy": "cpu",
     "np": "cpu",
-    "auto": "cpu",
-    "gpu": "jax",
-    "jax": "jax",
-    "cuda": "jax",
-    "rocm": "jax",
+    "torch": "torch",
+    "pytorch": "torch",
+    "mps": "torch",
+    "cuda": "torch",
+    "rocm": "torch",
+    "hip": "torch",
     "mlx": "mlx",
     "metal": "mlx",
     "apple": "mlx",
+    "jax": "jax",
+    "gpu": "torch",
 }
 
 
 def normalize_backend(value: Any) -> str:
     """Map any UI/config token to a canonical backend token (defaults to cpu)."""
     token = str(value or "").strip().lower()
+    if token == "auto":
+        if apple_silicon_available() and mlx_available():
+            return "mlx"
+        if torch_available():
+            try:
+                import torch
+                if torch.cuda.is_available() or (hasattr(torch.backends, "mps") and torch.backends.mps.is_available()):
+                    return "torch"
+            except Exception:
+                pass
+        if jax_available():
+            return "jax"
+        return "cpu"
     return _BACKEND_ALIASES.get(token, "cpu")
-
 
 def backend_descriptor(value: Any) -> BackendDescriptor:
     return BACKENDS[normalize_backend(value)]

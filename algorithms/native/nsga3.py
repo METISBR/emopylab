@@ -8,7 +8,7 @@ from typing import Any, Optional
 import numpy as np
 
 from core.engine.runner import OptimizationResult
-from core.nds.ens import efficient_non_dominated_sort
+from core.nds.gpu_nds import boolean_matrix_nds
 from core.operators.crossover.sbx import sbx_crossover_tensor
 from core.operators.mutation.polynomial import polynomial_mutation_tensor
 from core.operators.sampling.lhs import latin_hypercube_sampling
@@ -95,9 +95,9 @@ class NativeNSGA3:
 
             # Merge 2N Pool
             merged = TensorPopulation.merge(pop, offspring_pop)
+            # Accelerated Boolean Matrix NDS on device (with constraint violations)
+            merged_fronts = boolean_matrix_nds(merged.F, merged.CV)
             merged_F_cpu = to_numpy(merged.F)
-            merged_fronts = efficient_non_dominated_sort(merged_F_cpu)
-
             # Environmental Niching Selection
             survivor_indices = []
             for front in merged_fronts:

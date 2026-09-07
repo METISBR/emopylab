@@ -147,15 +147,17 @@ def _extract_front(F: Any) -> np.ndarray:
         return arr
 
 def _extract_pop_data(pop: Any) -> dict[str, Any]:
-    """Extrai dados serializáveis de uma Population."""
+    """Extrai dados serializáveis contíguos de uma Population."""
     data: dict[str, Any] = {}
     if pop is None:
         return data
+    from core.tensor.backend import to_numpy
     for field in ("F", "X", "G", "H", "CV", "feasible"):
         try:
             val = pop.get(field)
             if val is not None:
-                data[field] = np.asarray(val).tolist()
+                arr = to_numpy(val)
+                data[field] = np.ascontiguousarray(arr) if isinstance(arr, np.ndarray) else np.asarray(arr)
             else:
                 data[field] = None
         except Exception:
@@ -317,7 +319,7 @@ def run_trial_in_process(
         "evaluations": evaluations,
         "backend_code": backend_code,
         "backend_label": backend_label,
-        "final_front": final_front.tolist() if final_front is not None else [],
+        "final_front": np.ascontiguousarray(final_front) if final_front is not None else np.empty((0, 0)),
         "final_population": pop_data,
-        "final_F": final_F.tolist() if final_F is not None else None,
+        "final_F": np.ascontiguousarray(final_F) if final_F is not None else None,
     }

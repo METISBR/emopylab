@@ -66,10 +66,10 @@ def minimize(
 
     # Set seed
     if seed is not None:
-        np.random.seed(seed)
+        from core.execution.reproducibility import seed_all_hardware_backends
+        seed_all_hardware_backends(seed)
         if hasattr(algorithm, "seed"):
             algorithm.seed = seed
-
     # Resolve termination
     if termination is None:
         n_obj = getattr(problem, "n_obj", 1)

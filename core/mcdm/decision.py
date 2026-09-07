@@ -51,6 +51,34 @@ def compute_promethee_ii(norm_matrix: np.ndarray, weights: np.ndarray) -> tuple[
 
     best_idx = int(np.argmax(net_flows))
     return best_idx, float(net_flows[best_idx]), net_flows
+def compute_vikor(norm_matrix: np.ndarray, weights: np.ndarray, v: float = 0.5) -> tuple[int, float, np.ndarray]:
+    """Computes VIKOR compromise solution (minimization).
+
+    S_i: Group utility (Manhattan distance)
+    R_i: Individual regret (Chebyshev distance)
+    Q_i: Compromise index between group utility and individual regret
+    """
+    n_points, n_obj = norm_matrix.shape
+    if n_points == 1:
+        return 0, 0.0, np.array([0.0])
+
+    f_best = np.min(norm_matrix, axis=0)
+    f_worst = np.max(norm_matrix, axis=0)
+    denom = np.where((f_worst - f_best) > 1e-12, f_worst - f_best, 1.0)
+
+    diff_ratio = weights * (norm_matrix - f_best) / denom
+    S = np.sum(diff_ratio, axis=1)
+    R = np.max(diff_ratio, axis=1)
+
+    S_star, S_minus = np.min(S), np.max(S)
+    R_star, R_minus = np.min(R), np.max(R)
+
+    s_denom = S_minus - S_star if (S_minus - S_star) > 1e-12 else 1.0
+    r_denom = R_minus - R_star if (R_minus - R_star) > 1e-12 else 1.0
+
+    Q = v * (S - S_star) / s_denom + (1.0 - v) * (R - R_star) / r_denom
+    best_idx = int(np.argmin(Q))
+    return best_idx, float(Q[best_idx]), Q
 
 
 def select_compromise_solution(
@@ -105,6 +133,8 @@ def select_compromise_solution(
         best_idx, best_score, all_scores = compute_topsis(norm_matrix, weights)
     elif method_name in {"promethee", "promethee_ii", "promethee2"}:
         best_idx, best_score, all_scores = compute_promethee_ii(norm_matrix, weights)
+    elif method_name in {"vikor", "vikor_min"}:
+        best_idx, best_score, all_scores = compute_vikor(norm_matrix, weights)
     else:  # Weighted sum baseline
         scores = np.sum(norm_matrix * weights, axis=1)
         best_idx = int(np.argmin(scores))

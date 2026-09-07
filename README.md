@@ -33,11 +33,16 @@ If you utilize **EmoPyLab** in your scientific research, algorithms, or benchmar
 ---
 
 ## Changelog & Release Notes
+### [v1.0.3] — 2026-09-07
+* **Hardware Tensor Engine Hardening**: Full native acceleration across Apple Silicon (Metal/MPS, MLX with `@mx.compile`), NVIDIA CUDA (LNCC Santos Dumont Supercomputer), and AMD ROCm.
+* **On-Device RNG & Vectorized Operators**: Replaced CPU host random generation with on-device tensor PRNGs in SBX and Polynomial Mutation, eliminating host-device synchronization ping-pong.
+* **Boolean Matrix NDS with CDP**: Integrated bitwise Boolean Matrix Non-Dominated Sorting and Deb's Constrained Dominance Principle directly into native tensor solvers (`NativeNSGA2`, `NativeNSGA3`).
+* **Cross-Platform HPC PyTorch Metrics**: Introduced `metrics/community_metrics_Torch.py` and unified `MetricEvaluator` adaptive hardware dispatch for high-throughput cluster execution.
+* **IPC & Memory Optimization**: Eliminated object-inflation `.tolist()` serialization across multiprocessing workers, passing contiguous memory buffers.
 
 ### [v1.0.2] — 2026-09-04
 * **R2 Performance Indicator**: Native, tensor-accelerated implementation of the classical R2 quality indicator (Hansen & Jaszkiewicz, 1998) with vectorized 3D tensor broadcasting, adaptive Das-Dennis simplex lattice weights, coordinate normalization, and JAX GPU mirror.
 * **Enhanced Safety & Hardening**: Strict finite input validation, dimension-mismatch guards, zero-weight checks, and deterministic lattice sub-sampling for massive many-objective regimes ($M \ge 15$).
-
 ### [v1.0.1] — 2026-09-03
 * **Supercomputer Benchmarking**: Empirical speedup proof on Santos Dumont (LNCC) NVIDIA Tesla V100 SXM2 GPU vs. Intel Xeon Gold (up to **24.11×** on real Pareto fronts and **514.62×** on massive populations via Boolean Matrix Dominance).
 * **Standalone Tensor Architecture**: Native `core/` tensor execution engine for algorithms, problems, operators, and metrics — no external optimization framework required.
@@ -348,7 +353,7 @@ If you utilize **EmoPyLab** in your scientific research, algorithms, or benchmar
   title   = {{EmoPyLab: A High-Throughput Benchmarking Ecosystem and Open-Source Decision Platform for Evolutionary Many-Objective Optimization}},
   month   = {9},
   year    = {2026},
-  version = {1.0.2},
+  version = {1.0.3},
   url     = {https://github.com/METISBR/emopylab},
   license = {MIT}
 }

@@ -6470,7 +6470,7 @@ class EmoPyLabMainWindow(QMainWindow):
         status_bar.addWidget(hw_label)
 
         # Version & Research Group Attribution
-        ver_label = QLabel('<span style="color: #64748B;">EmoPyLab v1.0.2 • </span>')
+        ver_label = QLabel('<span style="color: #64748B;">EmoPyLab v1.0.3 • </span>')
         status_bar.addPermanentWidget(ver_label)
 
         metis_link = QLabel(
@@ -15218,7 +15218,8 @@ class EmoPyLabMainWindow(QMainWindow):
                     pf_color = QColor(StylesAppStyles.colors.chart_reference_front)
                     pf_color.setAlpha(72)
                     pf_pen = QPen(pf_color, 1.0)
-                    for row in problem_pf:
+                    pf_step = max(1, len(problem_pf) // 250)
+                    for row in problem_pf[::pf_step]:
                         s = QLineSeries()
                         s.setPen(pf_pen)
                         for dim_idx in range(n_obj):
@@ -15241,7 +15242,8 @@ class EmoPyLabMainWindow(QMainWindow):
                 obtained_color = QColor(AppStyles.chart_palette()[0])
                 obtained_color.setAlpha(160)
                 obtained_pen = QPen(obtained_color, 1.5)
-                for row in front:
+                front_step = max(1, len(front) // 250)
+                for row in front[::front_step]:
                     s = QLineSeries()
                     s.setPen(obtained_pen)
                     for dim_idx in range(n_obj):
@@ -15249,7 +15251,6 @@ class EmoPyLabMainWindow(QMainWindow):
                     chart.addSeries(s)
                     s.attachAxis(x_axis)
                     s.attachAxis(y_axis)
-                # Invisible series for legend
                 obt_legend = QLineSeries()
                 obt_legend.setName("Obtained")
                 obt_legend.setPen(QPen(QColor(AppStyles.chart_palette()[0]), 2.5))
@@ -16609,7 +16610,8 @@ class EmoPyLabMainWindow(QMainWindow):
                     pf_color = QColor(StylesAppStyles.colors.chart_reference_front)
                     pf_color.setAlpha(72)
                     pf_pen = QPen(pf_color, 1.0)
-                    for row in problem_pf:
+                    pf_step = max(1, len(problem_pf) // 250)
+                    for row in problem_pf[::pf_step]:
                         s = QLineSeries()
                         s.setPen(pf_pen)
                         for dim_idx in range(n_obj):
@@ -16630,7 +16632,8 @@ class EmoPyLabMainWindow(QMainWindow):
                 obtained_color = QColor(AppStyles.chart_palette()[0])
                 obtained_color.setAlpha(160)
                 obtained_pen = QPen(obtained_color, 1.5)
-                for row in front:
+                front_step = max(1, len(front) // 250)
+                for row in front[::front_step]:
                     s = QLineSeries()
                     s.setPen(obtained_pen)
                     for dim_idx in range(n_obj):

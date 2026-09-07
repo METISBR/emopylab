@@ -13,6 +13,12 @@ from metrics.evaluator import (
     evaluate_front,
     r2_indicator,
 )
+from metrics.kkt_indicators import (
+    compute_kkt_residuals,
+    calc_h_old,
+    calc_h_adap,
+    analyze_quantile_sensitivity,
+)
 
 # Aliases
 igd = inverted_generational_distance
@@ -37,4 +43,8 @@ __all__ = [
     "igd",
     "gd",
     "r2_indicator",
+    "compute_kkt_residuals",
+    "calc_h_old",
+    "calc_h_adap",
+    "analyze_quantile_sensitivity",
 ]

@@ -90,6 +90,61 @@ def detect_mlx_runtime() -> dict[str, Any]:
 
     return info
 
+def detect_torch_runtime() -> dict[str, Any]:
+    """Detect PyTorch runtime across NVIDIA CUDA, AMD ROCm, and Apple Silicon MPS."""
+    info: dict[str, Any] = {
+        "torch_ok": False,
+        "torch_version": None,
+        "cuda_ok": False,
+        "rocm_ok": False,
+        "mps_ok": False,
+        "device_name": None,
+        "device_count": 0,
+        "all_devices": [],
+        "error": None,
+    }
+    try:
+        import torch
+    except Exception as exc:  # noqa: BLE001
+        info["error"] = f"PyTorch not available: {exc}"
+        return info
+
+    info["torch_ok"] = True
+    info["torch_version"] = str(getattr(torch, "__version__", "unknown"))
+
+    if torch.cuda.is_available():
+        is_hip = getattr(torch.version, "hip", None) is not None
+        info["cuda_ok"] = not is_hip
+        info["rocm_ok"] = is_hip
+        info["device_count"] = torch.cuda.device_count()
+        info["device_name"] = torch.cuda.get_device_name(0)
+        info["all_devices"] = [torch.cuda.get_device_name(i) for i in range(info["device_count"])]
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        info["mps_ok"] = True
+        info["device_count"] = 1
+        info["device_name"] = "Apple Silicon MPS (Metal)"
+        info["all_devices"] = ["Apple MPS"]
+    else:
+        info["device_name"] = "CPU"
+        info["device_count"] = 1
+        info["all_devices"] = ["CPU"]
+
+    return info
+
+
+def build_torch_status_text(info: dict[str, Any]) -> str:
+    if info.get("cuda_ok"):
+        return f"PyTorch CUDA available: {info.get('device_name', 'NVIDIA GPU')} ({info.get('device_count', 1)} devices)"
+    if info.get("rocm_ok"):
+        return f"PyTorch ROCm available: {info.get('device_name', 'AMD GPU')} ({info.get('device_count', 1)} devices)"
+    if info.get("mps_ok"):
+        return f"PyTorch MPS available: {info.get('device_name', 'Apple Silicon Metal')}"
+    if info.get("torch_ok"):
+        return "PyTorch available (CPU execution)."
+    if info.get("error"):
+        return str(info.get("error"))
+    return "PyTorch unavailable. CPU execution will be used."
+
 
 def build_backend_status_text(info: dict[str, Any], backend: str = "jax") -> str:
     """Backend-agnostic status text dispatcher.
@@ -98,6 +153,8 @@ def build_backend_status_text(info: dict[str, Any], backend: str = "jax") -> str
     ``jax``/``gpu`` tokens so legacy callers stay unchanged.
     """
     token = str(backend or "").strip().lower()
+    if token in ("torch", "pytorch", "mps"):
+        return build_torch_status_text(info)
     if token == "mlx":
         if info.get("mlx_ok") and info.get("device"):
             return f"MLX available: {info.get('device')}"
@@ -109,4 +166,3 @@ def build_backend_status_text(info: dict[str, Any], backend: str = "jax") -> str
     if token == "cpu":
         return "CPU execution (NumPy)."
     return build_gpu_status_text(info)
-

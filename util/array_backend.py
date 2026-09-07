@@ -19,81 +19,115 @@ from typing import Any
 import numpy as _np
 
 
-class _NumpyFacade:
-    """Expose NumPy under the historical ``xp`` facade contract."""
+class _DynamicArrayFacade:
+    """Expose the active accelerator array module dynamically under historical xp contract."""
 
     def __getattr__(self, item: str) -> Any:
-        return getattr(_np, item)
+        from core.tensor.backend import get_array_module
+        return getattr(get_array_module(), item)
 
 
-xp = _NumpyFacade()
+xp = _DynamicArrayFacade()
 
-# Legacy compatibility names (historically CuPy-backed in some plugins).
-cp = None
-CUPY_AVAILABLE = False
+# Dynamic compatibility properties
+def _check_cupy() -> bool:
+    try:
+        import cupy  # noqa: F401
+        return True
+    except Exception:
+        return False
 
-# JAX-oriented aliases (project nomenclature).
-jax_accel = None
+def _check_mlx() -> bool:
+    try:
+        import mlx.core  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+CUPY_AVAILABLE = _check_cupy()
 JAX_ACCEL_AVAILABLE = False
-
-# MLX-oriented aliases
-mlx_accel = None
-MLX_ACCEL_AVAILABLE = False
-
+MLX_ACCEL_AVAILABLE = _check_mlx()
+cp = None
+if CUPY_AVAILABLE:
+    try:
+        import cupy as cp
+    except Exception:
+        pass
 
 def to_numpy(value: Any) -> Any:
     """Convert arrays/scalars to NumPy arrays when possible."""
     if value is None:
         return None
-    getter = getattr(value, "get", None)
-    if callable(getter):
-        try:
-            value = getter()
-        except Exception:  # noqa: BLE001
-            pass
-    return _np.asarray(value)
+    from core.tensor.backend import to_numpy as _core_to_numpy
+    return _core_to_numpy(value)
 
 
 def to_device(value: Any, use_gpu: bool = False, dtype: Any = None) -> Any:
-    """Return a NumPy array (CPU fallback)."""
+    """Transfer array to active acceleration device if requested, else NumPy."""
     if value is None:
         return None
+    if use_gpu:
+        from core.tensor.backend import to_device as _core_to_device
+        return _core_to_device(value, dtype=dtype)
     if dtype is not None:
-        return _np.asarray(value, dtype=dtype)
-    return _np.asarray(value)
+        return _np.asarray(to_numpy(value), dtype=dtype)
+    return _np.asarray(to_numpy(value))
 
 
 def get_array_module(_value: Any = None) -> Any:
-    """Return the active array module (NumPy in this shim)."""
-    return _np
+    """Return the active array module (MLX, PyTorch, or NumPy)."""
+    from core.tensor.backend import get_array_module as _core_get_array_module
+    return _core_get_array_module()
 
 
-def is_cupy_array(_value: Any) -> bool:
-    """Compatibility helper: always false in the local CPU shim."""
-    return False
+def is_cupy_array(value: Any) -> bool:
+    if value is None:
+        return False
+    return "cupy" in type(value).__module__
 
 
-def is_jax_array(_value: Any) -> bool:
-    """Compatibility helper for JAX-oriented naming: always false here."""
-    return False
+def is_jax_array(value: Any) -> bool:
+    if value is None:
+        return False
+    return "jax" in type(value).__module__
 
 
-def is_mlx_array(_value: Any) -> bool:
-    """Compatibility helper for MLX-oriented naming: always false here."""
-    return False
+def is_mlx_array(value: Any) -> bool:
+    if value is None:
+        return False
+    return "mlx" in type(value).__module__
 
 
-def backend_cdist(a: Any, b: Any, metric: str = "euclidean") -> _np.ndarray:
-    """Distance matrix helper with SciPy fallback to pure NumPy for euclidean."""
+def is_torch_array(value: Any) -> bool:
+    if value is None:
+        return False
+    return "torch" in type(value).__module__
+
+def backend_cdist(a: Any, b: Any, metric: str = "euclidean") -> Any:
+    """Distance matrix helper accelerated on active GPU/NPU when available."""
+    from core.tensor.backend import get_backend_type, get_array_module
+    btype = get_backend_type()
+    if str(metric).lower() == "euclidean":
+        if btype == "mlx":
+            import mlx.core as mx
+            aa = mx.array(a) if not is_mlx_array(a) else a
+            bb = mx.array(b) if not is_mlx_array(b) else b
+            diff = mx.expand_dims(aa, 1) - mx.expand_dims(bb, 0)
+            return mx.sqrt(mx.sum(diff * diff, axis=2))
+        elif btype == "torch":
+            import torch
+            dev = torch.device("cuda" if torch.cuda.is_available() else ("mps" if hasattr(torch.backends, "mps") and torch.backends.mps.is_available() else "cpu"))
+            aa = torch.as_tensor(a, device=dev) if not is_torch_array(a) else a.to(dev)
+            bb = torch.as_tensor(b, device=dev) if not is_torch_array(b) else b.to(dev)
+            diff = aa.unsqueeze(1) - bb.unsqueeze(0)
+            return torch.linalg.norm(diff, dim=2)
+
     a_np = _np.asarray(to_numpy(a), dtype=float)
     b_np = _np.asarray(to_numpy(b), dtype=float)
     try:
         from scipy.spatial.distance import cdist
-
         return _np.asarray(cdist(a_np, b_np, metric=metric), dtype=float)
     except Exception:
-        if str(metric).lower() != "euclidean":
-            raise RuntimeError(f"Distance metric '{metric}' requires scipy.spatial.distance.cdist")
         diff = a_np[:, None, :] - b_np[None, :, :]
         return _np.linalg.norm(diff, axis=2)
 
@@ -104,28 +138,26 @@ def resolve_backend_config(
     array_backend: str = "auto",
     gpu_dtype: str = "float32",
 ) -> dict[str, Any]:
-    """
-    Resolve backend settings for local algorithms.
-
-    The physical shim is CPU-only. We still preserve the requested backend token
-    so the caller can report intent (e.g., ``jax``) while running on CPU.
-    """
+    """Resolve backend settings using core tensor backend detection."""
+    from core.tensor.backend import init_tensor_backend, get_backend_type, _DEVICE_INFO
     requested = str(array_backend).strip().lower() or "auto"
     if requested == "auto":
-        requested = "jax" if bool(use_gpu) else "numpy"
-    dtype = str(gpu_dtype).strip().lower()
-    if dtype not in {"float32", "float64"}:
-        dtype = "float32"
+        info = init_tensor_backend(prefer=None)
+    else:
+        info = init_tensor_backend(prefer=requested if requested in ("torch", "mlx", "cupy", "jax", "numpy") else None)
+
+    is_accel = bool(info.get("accelerated", False))
+    eff = info.get("backend", "numpy")
     return {
         "requested_backend": requested,
-        "effective_backend": "numpy",
-        "use_gpu": False,
-        "gpu_dtype": dtype,
-        "cupy_available": False,
+        "effective_backend": eff,
+        "use_gpu": is_accel if use_gpu or requested != "numpy" else False,
+        "gpu_dtype": gpu_dtype,
+        "cupy_available": CUPY_AVAILABLE,
         "jax_available": False,
-        "mlx_available": False,
+        "mlx_available": MLX_ACCEL_AVAILABLE,
+        "torch_available": True,
     }
-
 
 def get_cupy_device_name(_device_id: int = 0) -> str | None:
     """Legacy compatibility helper (no accelerator in this shim)."""
