@@ -6,8 +6,11 @@ from functools import wraps
 import itertools
 from typing import Any, Callable
 import numpy as np
-from scipy.spatial.distance import cdist as scipy_cdist
 
+try:
+    from scipy.spatial.distance import cdist as scipy_cdist
+except Exception:
+    scipy_cdist = None
 
 def default_random_state(func: Callable) -> Callable:
     """Decorator to inject a default random state (seed or np.random.RandomState/Generator) if not provided."""
@@ -43,8 +46,15 @@ def cdist(XA: np.ndarray, XB: np.ndarray, metric: str = "euclidean", **kwargs: A
         XA_arr = XA_arr.reshape(1, -1)
     if XB_arr.ndim == 1:
         XB_arr = XB_arr.reshape(1, -1)
-    return scipy_cdist(XA_arr, XB_arr, metric=metric, **kwargs)
-
+    if scipy_cdist is not None:
+        try:
+            return scipy_cdist(XA_arr, XB_arr, metric=metric, **kwargs)
+        except Exception:
+            pass
+    if str(metric).lower() == "euclidean":
+        diff = XA_arr[:, None, :] - XB_arr[None, :, :]
+        return np.linalg.norm(diff, axis=2)
+    raise RuntimeError(f"Metric '{metric}' requires scipy.spatial.distance.cdist")
 
 def crossover_mask(n_parents: int, n_matings: int, n_var: int) -> np.ndarray:
     """Generate boolean crossover masks for parent selection per variable."""
