@@ -34,7 +34,7 @@ def _mannwhitneyu_np(x: np.ndarray, y: np.ndarray, alternative: str = "two-sided
     ranks = _rankdata_np(combined)
     r1 = np.sum(ranks[:n1])
     u1 = r1 - n1 * (n1 + 1) / 2.0
-    return float(u1), 1.0
+    return float(u1), float("nan")
 
 def _friedmanchisquare_np(*args: Any) -> tuple[float, float]:
     data = np.column_stack(args)
@@ -42,7 +42,7 @@ def _friedmanchisquare_np(*args: Any) -> tuple[float, float]:
     ranks = np.array([_rankdata_np(row) for row in data])
     r_j = np.sum(ranks, axis=0)
     q = (12.0 / (n * k * (k + 1.0))) * np.sum(r_j ** 2) - 3.0 * n * (k + 1.0)
-    return float(q), 0.05
+    return float(q), float("nan")
 
 try:
     from scipy import stats
