@@ -171,8 +171,17 @@ def nd_sort(PopObj, PopCon=None, n_sort=np.inf):
     else:
         stop = int(max(1, min(N, int(n_sort))))
 
-    nds = NonDominatedSorting(method="efficient_non_dominated_sort")
-    fronts = nds.do(F, n_stop_if_ranked=stop)
+    try:
+        from core.tensor.backend import get_backend_type, to_device
+        from core.nds.gpu_nds import boolean_matrix_nds
+        if get_backend_type() in ("cupy", "torch", "mlx") and N >= 40:
+            fronts = boolean_matrix_nds(to_device(F))
+        else:
+            nds = NonDominatedSorting(method="efficient_non_dominated_sort")
+            fronts = nds.do(F, n_stop_if_ranked=stop)
+    except Exception:
+        nds = NonDominatedSorting(method="efficient_non_dominated_sort")
+        fronts = nds.do(F, n_stop_if_ranked=stop)
 
     front_no = np.full(N, np.inf, dtype=float)
     max_f = 0
