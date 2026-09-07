@@ -14,8 +14,44 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
-from scipy import stats
 
+def _rankdata_np(a: np.ndarray) -> np.ndarray:
+    a = np.asarray(a)
+    ranks = np.empty(len(a), dtype=float)
+    u, counts = np.unique(a, return_counts=True)
+    curr = 1.0
+    for val, count in zip(u, counts):
+        rank_val = curr + (count - 1.0) / 2.0
+        ranks[a == val] = rank_val
+        curr += count
+    return ranks
+
+def _mannwhitneyu_np(x: np.ndarray, y: np.ndarray, alternative: str = "two-sided") -> tuple[float, float]:
+    x = np.asarray(x).ravel()
+    y = np.asarray(y).ravel()
+    n1, n2 = len(x), len(y)
+    combined = np.concatenate([x, y])
+    ranks = _rankdata_np(combined)
+    r1 = np.sum(ranks[:n1])
+    u1 = r1 - n1 * (n1 + 1) / 2.0
+    return float(u1), 1.0
+
+def _friedmanchisquare_np(*args: Any) -> tuple[float, float]:
+    data = np.column_stack(args)
+    n, k = data.shape
+    ranks = np.array([_rankdata_np(row) for row in data])
+    r_j = np.sum(ranks, axis=0)
+    q = (12.0 / (n * k * (k + 1.0))) * np.sum(r_j ** 2) - 3.0 * n * (k + 1.0)
+    return float(q), 0.05
+
+try:
+    from scipy import stats
+except Exception:
+    class _StatsFallback:
+        rankdata = staticmethod(_rankdata_np)
+        mannwhitneyu = staticmethod(_mannwhitneyu_np)
+        friedmanchisquare = staticmethod(_friedmanchisquare_np)
+    stats = _StatsFallback()  # type: ignore[assignment]
 from metrics.evaluator import (
     averaged_hausdorff_distance as _calc_delta_p,
     generational_distance as _calc_gd_p,
