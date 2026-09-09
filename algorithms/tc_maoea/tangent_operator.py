@@ -13,6 +13,10 @@ import numpy as np
 from core.population import Population
 from util.array_backend import to_numpy
 from util.nds.non_dominated_sorting import NonDominatedSorting
+try:
+    from core.nds.gpu_nds import boolean_matrix_nds as _nds_fast
+except Exception:
+    _nds_fast = None
 
 
 def population_matrix(pop: Population, key: str) -> np.ndarray:
@@ -240,7 +244,8 @@ def apd_environmental_selection(
     gamma = np.maximum(np.min(angles, axis=1), 1e-6) if len(W) > 1 else np.array([np.pi])
     scores = norm_f * (1 + F.shape[1] * np.clip(t_ratio, 0, 1) ** alpha * theta[np.arange(len(F)), assoc] / gamma[assoc])
     survivors = []
-    for front in NonDominatedSorting().do(F):
+    fronts = _nds_fast(F) if _nds_fast is not None else NonDominatedSorting().do(F)
+    for front in fronts:
         if len(survivors) + len(front) <= n_survive:
             survivors.extend(front)
             continue
