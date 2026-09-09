@@ -6004,9 +6004,10 @@ class EmoPyLabMainWindow(QMainWindow):
     def _is_default_metric_checked(self, spec: MetricSpec) -> bool:
         metric_name_norm = re.sub(r"[^a-z0-9]+", "", spec.name.lower())
         metric_id_norm = re.sub(r"[^a-z0-9]+", "", spec.id.lower())
-        # Default metric: IQHV exact hypervolume (iqhv)
-        is_iqhv = "iqhv" in metric_name_norm or "iqhv" in metric_id_norm
-        return bool(is_iqhv)
+        # Default metric: DeltaP (Averaged Hausdorff Distance), canonical base only
+        if metric_name_norm != "deltap" or "jax" in metric_id_norm or "mlx" in metric_id_norm or "torch" in metric_id_norm:
+            return False
+        return True
     def _normalize_operator_value(self, operator_type: str, value: Any) -> Any:
         if not isinstance(value, str):
             return value
@@ -10243,20 +10244,15 @@ class EmoPyLabMainWindow(QMainWindow):
         self.exp_problem_list.itemSelectionChanged.connect(self._on_exp_prob_selection_changed)
         self.exp_problem_list.currentItemChanged.connect(self._on_exp_problem_current_changed)
 
-        # Default startup selections for experiment module (NSGA3Local first).
+        # Default startup selections for experiment module (NSGA-III first).
         default_exp_algo_item: QListWidgetItem | None = None
-        default_exp_nsga3_item: QListWidgetItem | None = None
         for i in range(self.exp_algorithm_list.count()):
             item = self.exp_algorithm_list.item(i)
             algo_id = item.data(Qt.ItemDataRole.UserRole)
             spec = self.algorithm_specs.get(algo_id) if isinstance(algo_id, str) else None
-            if spec is not None and core_normalize_backend_token(spec.name) == "nsga3local":
+            if spec is not None and core_normalize_backend_token(spec.name) in {"nsgaiii", "nsga3"}:
                 default_exp_algo_item = item
                 break
-            if default_exp_nsga3_item is None and spec is not None and core_normalize_backend_token(spec.name) == "nsga3":
-                default_exp_nsga3_item = item
-        if default_exp_algo_item is None:
-            default_exp_algo_item = default_exp_nsga3_item
         if default_exp_algo_item is None and self.exp_algorithm_list.count() > 0:
             default_exp_algo_item = self.exp_algorithm_list.item(0)
         if default_exp_algo_item is not None:
@@ -13716,12 +13712,8 @@ class EmoPyLabMainWindow(QMainWindow):
             item = QListWidgetItem(spec.label)
             item.setData(Qt.ItemDataRole.UserRole, spec.id)
             self.algorithm_list.addItem(item)
-            if target_item is None and core_normalize_backend_token(spec.name) == "nsga3local":
+            if target_item is None and core_normalize_backend_token(spec.name) in {"nsgaiii", "nsga3"}:
                 target_item = item
-            if nsga3_fallback_item is None and core_normalize_backend_token(spec.name) == "nsga3":
-                nsga3_fallback_item = item
-        if target_item is None:
-            target_item = nsga3_fallback_item
         if target_item is None and self.algorithm_list.count() > 0:
             target_item = self.algorithm_list.item(0)
         if target_item is not None:

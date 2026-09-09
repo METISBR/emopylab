@@ -13,7 +13,6 @@ EMOPYLAB_ALGORITHMS = [
     {"class_name": "DNV_MaOEA", "name": "DNV-MaOEA"},
     {"class_name": "SSW_DNV", "name": "SSW-DNV"},
     {"class_name": "UNSGA3", "name": "U-NSGA-III"},
-    {"class_name": "NSGA3Local", "name": "NSGA-III (PlatEMO Port)"},
 ]
 
 EMOPYLAB_PROBLEMS = {

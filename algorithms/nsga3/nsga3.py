@@ -36,9 +36,7 @@ except Exception:  # pragma: no cover
 
 
 ALGORITHM_FLAGS = {
-    "NSGA3": {"multi", "many", "real", "integer", "binary", "permutation", "label", "constrained"},
     "NSGA-III": {"multi", "many", "real", "integer", "binary", "permutation", "label", "constrained"},
-    "NSGA3Local": {"multi", "many", "real", "integer", "binary", "permutation", "label", "constrained"},
 }
 
 
@@ -398,9 +396,7 @@ NSGA3Local = NSGA3
 NSGAIII = NSGA3
 
 ALGORITHMS = {
-    "NSGA3": NSGA3,
     "NSGA-III": NSGA3,
-    "NSGA3Local": NSGA3,
 }
 
 __all__ = [

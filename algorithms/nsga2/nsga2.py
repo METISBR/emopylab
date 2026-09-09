@@ -201,3 +201,14 @@ class NSGA2(Algorithm):
                     pop[idx].set("rank", rank)
         except Exception:
             pass
+
+
+NSGAII = NSGA2
+
+ALGORITHMS = {
+    "NSGA-II": NSGA2,
+}
+
+ALGORITHM_FLAGS = {
+    "NSGA-II": {"multi", "real", "integer", "binary", "permutation", "label", "constrained"},
+}

@@ -8,12 +8,10 @@ NSGAII = NSGA2
 NSGA_II = NSGA2
 
 ALGORITHMS = {
-    "NSGA2": NSGA2,
     "NSGA-II": NSGA2,
 }
 
 ALGORITHM_FLAGS = {
-    "NSGA2": {"multi", "real", "integer", "binary", "permutation", "label", "constrained"},
     "NSGA-II": {"multi", "real", "integer", "binary", "permutation", "label", "constrained"},
 }
 
