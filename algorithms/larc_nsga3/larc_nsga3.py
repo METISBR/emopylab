@@ -32,8 +32,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from core.population import Population
 
-from algorithms.nsga3_local.nsga3_local import (
-    NSGA3Local,
+from algorithms.nsga3.nsga3 import (
+    NSGA3,
     _constraint_violation,
     _environmental_selection,
     _population_constraints,
@@ -97,7 +97,7 @@ def _associate_ref_dirs(F: np.ndarray, ref_dirs: np.ndarray) -> tuple[np.ndarray
     return niche.astype(int), angle
 
 
-class LARC_NSGA3(NSGA3Local):
+class LARC_NSGA3(NSGA3):
     """NSGA-III with Two-Tier Bounded Semantic Controller."""
 
     ALGO_FLAGS = {"multi", "many", "real", "integer"}

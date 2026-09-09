@@ -7,7 +7,6 @@ Official canonical multi-objective algorithms:
   - MOEAD: Canonical MOEA/D (algorithms.moead)
   - AGEMOEA2: Canonical AGE-MOEA-II (algorithms.age2)
   - SMSEMOA: Canonical SMS-EMOA (algorithms.sms)
-  - NSGA3Local: Local PlatEMO-compatible port (algorithms.nsga3_local)
 
 Specialized research variants reside in their dedicated isolated subpackages.
 """
@@ -20,7 +19,6 @@ from algorithms.rvea import RVEA
 from algorithms.moead import MOEAD
 from algorithms.age2 import AGEMOEA2
 from algorithms.sms import SMSEMOA
-from algorithms.nsga3_local import NSGA3Local
 
 __all__ = [
     "NSGA2",
@@ -31,5 +29,4 @@ __all__ = [
     "MOEAD",
     "AGEMOEA2",
     "SMSEMOA",
-    "NSGA3Local",
 ]

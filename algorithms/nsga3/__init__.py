@@ -2,27 +2,36 @@
 
 from __future__ import annotations
 
-from .nsga3 import NSGA3, ReferenceDirectionSurvival, associate_to_niches
-
-NSGAIII = NSGA3
-NSGA_III = NSGA3
-
-ALGORITHMS = {
-    "NSGA3": NSGA3,
-    "NSGA-III": NSGA3,
-}
-
-ALGORITHM_FLAGS = {
-    "NSGA3": {"multi", "many", "real", "integer", "binary", "permutation", "label", "constrained"},
-    "NSGA-III": {"multi", "many", "real", "integer", "binary", "permutation", "label", "constrained"},
-}
+from .nsga3 import (
+    NSGA3,
+    NSGA3Local,
+    NSGAIII,
+    HyperplaneNormalization,
+    _environmental_selection,
+    _last_selection,
+    _perpendicular_distance,
+    _fronts,
+    _constraint_violation,
+    _population_objectives,
+    _population_constraints,
+    _update_zmin,
+    ALGORITHMS,
+    ALGORITHM_FLAGS,
+)
 
 __all__ = [
     "NSGA3",
     "NSGAIII",
-    "NSGA_III",
-    "ReferenceDirectionSurvival",
-    "associate_to_niches",
+    "NSGA3Local",
+    "HyperplaneNormalization",
+    "_environmental_selection",
+    "_last_selection",
+    "_perpendicular_distance",
+    "_fronts",
+    "_constraint_violation",
+    "_population_objectives",
+    "_population_constraints",
+    "_update_zmin",
     "ALGORITHMS",
     "ALGORITHM_FLAGS",
 ]

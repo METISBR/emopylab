@@ -43,7 +43,7 @@ def _last_selection(
     rng: np.random.Generator,
 ) -> np.ndarray:
     """
-    NSGA-III final niching phase adapted from algorithms/nsga3_local/nsga3_local.py.
+    NSGA-III final niching phase adapted from algorithms/nsga3/nsga3.py.
     Returns a boolean mask over pop_obj_2.
     """
     n2 = int(pop_obj_2.shape[0])
