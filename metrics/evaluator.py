@@ -94,7 +94,9 @@ def hypervolume(F: np.ndarray,
                 PF: Optional[np.ndarray] = None,
                 ref_point: Optional[Sequence[float] | np.ndarray] = None,
                 n_obj: Optional[int] = None,
-                sample_num: int = 10_000) -> float:
+                sample_num: int = 10_000,
+                seed: int = 1,
+                context: Optional[Mapping[str, Any]] = None) -> float:
     """Calculate Hypervolume using an adaptive Hybrid Dispatcher.
 
     Scientific Principle:
@@ -138,12 +140,13 @@ def hypervolume(F: np.ndarray,
             return float(hv_calc(norm_F[valid_idx]))
         except Exception:
             pass
-
-    # Step 3: Fast Monte Carlo with Dynamic Sample Pruning for M >= 4
     if PF_arr is not None and PF_arr.size > 0:
         try:
             from metrics.hv_fast_mc import HV_fast_MC
-            return float(HV_fast_MC(F, PF_arr, sample_num=sample_num))
+            hv_ctx = dict(context or {})
+            hv_ctx.setdefault("hv_mc_samples", sample_num)
+            hv_ctx.setdefault("hv_seed", seed)
+            return float(HV_fast_MC(F, PF_arr, sample_num=sample_num, seed=seed, context=hv_ctx))
         except Exception:
             pass
 
@@ -278,6 +281,31 @@ class MetricEvaluator:
             except Exception:
                 pass
 
+        elif backend == "jax":
+            try:
+                from metrics.community_metrics_JAX import METRICS as JAX_METRICS
+                if normalized_name in {"IGD", "INVERTEDGENERATIONALDISTANCE"} and "IGD_JAX" in JAX_METRICS:
+                    val = JAX_METRICS["IGD_JAX"](front, ctx)
+                    if not np.isnan(val):
+                        return val
+                elif normalized_name in {"IGDP", "IGDPLUS"} and "IGDp_JAX" in JAX_METRICS:
+                    val = JAX_METRICS["IGDp_JAX"](front, ctx)
+                    if not np.isnan(val):
+                        return val
+                elif normalized_name in {"GD", "GENERATIONALDISTANCE"} and "GD_JAX" in JAX_METRICS:
+                    val = JAX_METRICS["GD_JAX"](front, ctx)
+                    if not np.isnan(val):
+                        return val
+                elif normalized_name in {"SPACING"} and "Spacing_JAX" in JAX_METRICS:
+                    val = JAX_METRICS["Spacing_JAX"](front, ctx)
+                    if not np.isnan(val):
+                        return val
+                elif normalized_name in {"DELTAP", "DELTAPLUS", "HAUSDORFF"} and "DeltaP_JAX" in JAX_METRICS:
+                    val = JAX_METRICS["DeltaP_JAX"](front, ctx)
+                    if not np.isnan(val):
+                        return val
+            except Exception:
+                pass
         # Standard CPU NumPy fallback paths
         if normalized_name in {"IGD", "INVERTEDGENERATIONALDISTANCE"}:
             if pf_arr is None or pf_arr.size == 0:
@@ -287,19 +315,20 @@ class MetricEvaluator:
         if normalized_name in {"IGDP", "IGDPLUS"}:
             if pf_arr is None or pf_arr.size == 0:
                 return float("nan")
-            p = float(ctx.get("p", 2.0))
-            return inverted_generational_distance(F, pf_arr, p=p)
+            from metrics.community_metrics import _igdp_p_from_context, _igdp_value
+            return _igdp_value(F, pf_arr, p=_igdp_p_from_context(ctx, default=2.0))
 
         if normalized_name in {"GD", "GENERATIONALDISTANCE"}:
             if pf_arr is None or pf_arr.size == 0:
                 return float("nan")
-            return generational_distance(F, pf_arr, p=1.0)
+            from metrics.community_metrics import _gd_value
+            return _gd_value(F, pf_arr)
 
         if normalized_name in {"GDP", "GDPLUS"}:
             if pf_arr is None or pf_arr.size == 0:
                 return float("nan")
-            p = float(ctx.get("p", 2.0))
-            return generational_distance(F, pf_arr, p=p)
+            from metrics.community_metrics import _gd_value
+            return _gd_value(F, pf_arr)
 
         if normalized_name in {"DELTAP", "DELTAPLUS", "HAUSDORFF"}:
             if pf_arr is None or pf_arr.size == 0:
@@ -308,38 +337,13 @@ class MetricEvaluator:
             return averaged_hausdorff_distance(F, pf_arr, p=p)[0]
         if normalized_name in {"HV", "HYPERVOLUME", "HVFASTMC"}:
             sample_num = int(ctx.get("hv_mc_samples", 10_000))
+            seed = int(ctx.get("hv_seed", ctx.get("seed", 1)))
             engine = ctx.get("hv_engine") or ctx.get("engine")
             ref = ctx.get("ref_point")
             if ref is None:
                 ref = np.ones(F.shape[1]) if pf_arr is not None else np.max(F, axis=0) * 1.1
-            if engine == "iqhv":
-                from metrics.iqhv import iqhv
-                return float(iqhv(F, ref))
-            if engine == "hbda":
-                from metrics.hbda import hbda
-                return float(hbda(F, ref))
-            return hypervolume(F, PF=pf_arr, ref_point=ctx.get("ref_point"), sample_num=sample_num)
+            return hypervolume(F, PF=pf_arr, ref_point=ctx.get("ref_point"), sample_num=sample_num, seed=seed, context=ctx)
 
-        if normalized_name in {"IQHV", "IMPROVEDQUICKHYPERVOLUME"}:
-            from metrics.iqhv import iqhv
-            ref = ctx.get("ref_point")
-            if ref is None:
-                ref = np.ones(F.shape[1]) if pf_arr is not None else np.max(F, axis=0) * 1.1
-            return float(iqhv(F, ref))
-
-        if normalized_name in {"HBDA", "HYPERVOLUMEBOXDECOMPOSITION"}:
-            from metrics.hbda import hbda
-            ref = ctx.get("ref_point")
-            if ref is None:
-                ref = np.ones(F.shape[1]) if pf_arr is not None else np.max(F, axis=0) * 1.1
-            return float(hbda(F, ref))
-
-        if normalized_name in {"QEHVC", "QUICKEXTREMEHYPERVOLUMECONTRIBUTION"}:
-            from metrics.qehvc import qehvc
-            ref = ctx.get("ref_point")
-            if ref is None:
-                ref = np.ones(F.shape[1]) if pf_arr is not None else np.max(F, axis=0) * 1.1
-            return float(np.sum(qehvc(F, ref)))
         if normalized_name in {"SPACING"}:
             return spacing(F)
 

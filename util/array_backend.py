@@ -1,15 +1,8 @@
 # Made by EmoPyLab 2026.
-"""
-Local array-backend compatibility shim for legacy/community algorithms.
+"""Local array-backend compatibility facade over the core tensor backend.
 
-This module provides the subset of the historical ``util.array_backend``
-interface expected by several local algorithms. The current project runtime
-uses JAX as the accelerated backend at the application level, but many local
-algorithms still import legacy CuPy-like symbols (``cp``, ``CUPY_AVAILABLE``)
-for compatibility.
-
-This physical module exists so algorithms can be imported without requiring
-``EmoPyLab.py`` to inject a dynamic shim into ``sys.modules`` first.
+CuPy/Torch/MLX/JAX remain optional; every availability probe runs lazily so
+this module imports without any accelerator installed.
 """
 
 from __future__ import annotations
@@ -29,31 +22,47 @@ class _DynamicArrayFacade:
 
 xp = _DynamicArrayFacade()
 
-# Dynamic compatibility properties
 def _check_cupy() -> bool:
+    """Probe CuPy without importing it eagerly at module scope."""
     try:
-        import cupy  # noqa: F401
-        return True
+        import importlib.util
+        return importlib.util.find_spec("cupy") is not None
     except Exception:
         return False
+
+
+def _available_via_registry(probe: str) -> bool:
+    try:
+        from core.registry import backends as _backends
+        return bool(getattr(_backends, probe)())
+    except Exception:
+        return False
+
 
 def _check_mlx() -> bool:
+    return _available_via_registry("mlx_available")
+
+
+def _check_jax_accel() -> bool:
     try:
-        import mlx.core  # noqa: F401
-        return True
+        import jax
+        return str(jax.default_backend()).lower() in {"gpu", "cuda", "rocm", "metal", "tpu"}
     except Exception:
         return False
 
-CUPY_AVAILABLE = _check_cupy()
-JAX_ACCEL_AVAILABLE = False
-MLX_ACCEL_AVAILABLE = _check_mlx()
-cp = None
-if CUPY_AVAILABLE:
-    try:
-        import cupy as cp
-    except Exception:
-        pass
 
+def _cupy_module() -> Any:
+    try:
+        import cupy as _cupy
+        return _cupy
+    except Exception:
+        return None
+
+
+CUPY_AVAILABLE = _check_cupy()
+JAX_ACCEL_AVAILABLE = _check_jax_accel()
+MLX_ACCEL_AVAILABLE = _check_mlx()
+cp = _cupy_module()
 def to_numpy(value: Any) -> Any:
     """Convert arrays/scalars to NumPy arrays when possible."""
     if value is None:
@@ -63,7 +72,7 @@ def to_numpy(value: Any) -> Any:
 
 
 def to_device(value: Any, use_gpu: bool = False, dtype: Any = None) -> Any:
-    """Transfer array to active acceleration device if requested, else NumPy."""
+    """Transfer to the active device when requested, else NumPy."""
     if value is None:
         return None
     if use_gpu:
@@ -75,7 +84,7 @@ def to_device(value: Any, use_gpu: bool = False, dtype: Any = None) -> Any:
 
 
 def get_array_module(_value: Any = None) -> Any:
-    """Return the active array module (MLX, PyTorch, or NumPy)."""
+    """Return the active array module."""
     from core.tensor.backend import get_array_module as _core_get_array_module
     return _core_get_array_module()
 
@@ -89,38 +98,26 @@ def is_cupy_array(value: Any) -> bool:
 def is_jax_array(value: Any) -> bool:
     if value is None:
         return False
-    return "jax" in type(value).__module__
-
-
-def is_mlx_array(value: Any) -> bool:
-    if value is None:
-        return False
-    return "mlx" in type(value).__module__
-
-
-def is_torch_array(value: Any) -> bool:
-    if value is None:
-        return False
-    return "torch" in type(value).__module__
-
 def backend_cdist(a: Any, b: Any, metric: str = "euclidean") -> Any:
-    """Distance matrix helper accelerated on active GPU/NPU when available."""
-    from core.tensor.backend import get_backend_type, get_array_module
+    """Pairwise distances on the active backend without changing precision."""
+    from core.tensor.backend import get_array_module, get_backend_type, to_device, to_numpy
     btype = get_backend_type()
     if str(metric).lower() == "euclidean":
         if btype == "mlx":
+            aa = to_device(_np.asarray(to_numpy(a), dtype=np.float32))
+            bb = to_device(_np.asarray(to_numpy(b), dtype=np.float32))
             import mlx.core as mx
-            aa = mx.array(a) if not is_mlx_array(a) else a
-            bb = mx.array(b) if not is_mlx_array(b) else b
-            diff = mx.expand_dims(aa, 1) - mx.expand_dims(bb, 0)
-            return mx.sqrt(mx.sum(diff * diff, axis=2))
-        elif btype == "torch":
-            import torch
-            dev = torch.device("cuda" if torch.cuda.is_available() else ("mps" if hasattr(torch.backends, "mps") and torch.backends.mps.is_available() else "cpu"))
-            aa = torch.as_tensor(a, device=dev) if not is_torch_array(a) else a.to(dev)
-            bb = torch.as_tensor(b, device=dev) if not is_torch_array(b) else b.to(dev)
-            diff = aa.unsqueeze(1) - bb.unsqueeze(0)
-            return torch.linalg.norm(diff, dim=2)
+            result = mx.sqrt(mx.sum((mx.expand_dims(aa, 1) - mx.expand_dims(bb, 0)) ** 2, axis=2))
+            mx.eval(result)
+            return result
+        if btype == "torch":
+            aa = to_device(_np.asarray(to_numpy(a), dtype=np.float32))
+            bb = to_device(_np.asarray(to_numpy(b), dtype=np.float32))
+            return get_array_module().linalg.norm(aa.unsqueeze(1) - bb.unsqueeze(0), dim=2)
+        if btype == "cupy":
+            aa = to_device(_np.asarray(to_numpy(a), dtype=np.float32))
+            bb = to_device(_np.asarray(to_numpy(b), dtype=np.float32))
+            return get_array_module().linalg.norm(aa[:, None, :] - bb[None, :, :], axis=2)
 
     a_np = _np.asarray(to_numpy(a), dtype=float)
     b_np = _np.asarray(to_numpy(b), dtype=float)
@@ -139,7 +136,8 @@ def resolve_backend_config(
     gpu_dtype: str = "float32",
 ) -> dict[str, Any]:
     """Resolve backend settings using core tensor backend detection."""
-    from core.tensor.backend import init_tensor_backend, get_backend_type, _DEVICE_INFO
+    from core.tensor.backend import init_tensor_backend
+    from core.registry.backends import jax_available, mlx_available, torch_available
     requested = str(array_backend).strip().lower() or "auto"
     if requested == "auto":
         info = init_tensor_backend(prefer=None)
@@ -154,9 +152,9 @@ def resolve_backend_config(
         "use_gpu": is_accel if use_gpu or requested != "numpy" else False,
         "gpu_dtype": gpu_dtype,
         "cupy_available": CUPY_AVAILABLE,
-        "jax_available": False,
-        "mlx_available": MLX_ACCEL_AVAILABLE,
-        "torch_available": True,
+        "jax_available": jax_available(),
+        "mlx_available": mlx_available(),
+        "torch_available": torch_available(),
     }
 
 def get_cupy_device_name(_device_id: int = 0) -> str | None:

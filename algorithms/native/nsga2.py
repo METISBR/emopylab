@@ -21,7 +21,7 @@ from metrics.evaluator import evaluate_front
 
 
 def calc_crowding_distance(F_matrix: np.ndarray) -> np.ndarray:
-    """Calculates Deb's Crowding Distance for a Pareto front."""
+    """Native crowding variant (unnormalized per-objective gaps, CPU); reference is rank_and_crowding."""
     N, M = F_matrix.shape
     if N <= 2:
         return np.full(N, np.inf, dtype=np.float32)

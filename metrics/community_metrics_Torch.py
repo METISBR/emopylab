@@ -44,12 +44,50 @@ def _to_torch(values: Any, dev: Any = None) -> Any:
     return t
 
 
+_TILE_BUDGET = 2 ** 26
+
+
+def _tiled_min_euclidean(aa: Any, bb: Any) -> Any:
+    """Row-wise min Euclidean distance over query rows aa vs ref rows bb, tiled over bb."""
+    n, k = int(aa.shape[0]), int(bb.shape[0])
+    m = int(aa.shape[1])
+    tile = max(1, min(k, _TILE_BUDGET // max(1, n * m)))
+    best: Any | None = None
+    for s in range(0, k, tile):
+        chunk = bb[s:s + tile]
+        cur = torch.min(torch.linalg.norm(aa.unsqueeze(1) - chunk.unsqueeze(0), dim=2), dim=1).values
+        best = cur if best is None else torch.minimum(best, cur)
+    return best
+
+
+def _tiled_min_igdp_torch(pop_t: Any, opt_t: Any, p: float = 2.0) -> Any:
+    """IGD+ row minima per OPT row, tiled over POP rows with context p-norm (matches CPU delta)."""
+    n, k = int(pop_t.shape[0]), int(opt_t.shape[0])
+    m = int(pop_t.shape[1])
+    tile = max(1, min(n, _TILE_BUDGET // max(1, k * m)))
+    pf = float(p)
+    best: Any | None = None
+    for s in range(0, n, tile):
+        chunk = pop_t[s:s + tile]
+        diff = torch.clamp(chunk.unsqueeze(0) - opt_t.unsqueeze(1), min=0.0)
+        if abs(pf - 2.0) <= 1e-12:
+            d = torch.linalg.norm(diff, dim=2)
+        elif abs(pf - 1.0) <= 1e-12:
+            d = torch.sum(diff, dim=2)
+        else:
+            d = torch.sum(torch.pow(diff, pf), dim=2) ** (1.0 / pf)
+        cur = torch.min(d, dim=1).values
+        best = cur if best is None else torch.minimum(best, cur)
+    return best
+
+
 def _pairwise_euclidean_torch(aa: Any, bb: Any) -> Any:
     diff = aa.unsqueeze(1) - bb.unsqueeze(0)
     return torch.linalg.norm(diff, dim=2)
 
 
 def _metric_GD_Torch(front: Any, context: dict[str, Any]) -> float:
+    """Registry GD on Torch: norm(min distances)/N, float32 device math."""
     pop = _cpu._get_front(front)
     opt = _cpu._get_reference_front(context)
     if opt is None or pop.size == 0 or opt.size == 0:
@@ -63,10 +101,8 @@ def _metric_GD_Torch(front: Any, context: dict[str, Any]) -> float:
     pop_t = _to_torch(pop, dev)
     opt_t = _to_torch(opt, dev)
 
-    diff = pop_t.unsqueeze(1) - opt_t.unsqueeze(0)
-    d = torch.linalg.norm(diff, dim=2)
-    nearest = torch.min(d, dim=1).values
-    gd = torch.sqrt(torch.sum(nearest * nearest)) / float(pop_t.shape[0])
+    nearest = _tiled_min_euclidean(pop_t, opt_t)
+    gd = torch.linalg.vector_norm(nearest) / float(nearest.shape[0])
     return float(gd.item())
 
 
@@ -84,13 +120,12 @@ def _metric_IGD_Torch(front: Any, context: dict[str, Any]) -> float:
     pop_t = _to_torch(pop, dev)
     opt_t = _to_torch(opt, dev)
 
-    diff = opt_t.unsqueeze(1) - pop_t.unsqueeze(0)
-    d = torch.linalg.norm(diff, dim=2)
-    igd = torch.mean(torch.min(d, dim=1).values)
+    igd = torch.mean(_tiled_min_euclidean(opt_t, pop_t))
     return float(igd.item())
 
 
 def _metric_IGDp_Torch(front: Any, context: dict[str, Any]) -> float:
+    """Registry IGD+ on Torch: directional max(pop-opt,0), context p norm."""
     pop = _cpu._get_front(front)
     opt = _cpu._get_reference_front(context)
     if opt is None or pop.size == 0 or opt.size == 0:
@@ -104,17 +139,19 @@ def _metric_IGDp_Torch(front: Any, context: dict[str, Any]) -> float:
     pop_t = _to_torch(pop, dev)
     opt_t = _to_torch(opt, dev)
 
-    # Modified distance: max(pop - opt, 0)
-    diff = torch.clamp(pop_t.unsqueeze(0) - opt_t.unsqueeze(1), min=0.0)
-    d = torch.linalg.norm(diff, dim=2)
-    igdp = torch.mean(torch.min(d, dim=1).values)
+    p = _cpu._igdp_p_from_context(context, default=2.0)
+    # Modified distance: max(pop - opt, 0) tiled over POP rows; result rows are OPT.
+    igdp = torch.mean(_tiled_min_igdp_torch(pop_t, opt_t, p))
     return float(igdp.item())
 
 
 def _metric_Spacing_Torch(front: Any, context: dict[str, Any] = None) -> float:
+    """Registry Spacing on Torch: L1 nearest-neighbor std, ddof=1, float32 math."""
     pop = _cpu._get_front(front)
-    if pop.size == 0 or pop.shape[0] < 2:
+    if pop.size == 0:
         return float("nan")
+    if pop.shape[0] <= 1:
+        return 0.0
     if not _HAS_TORCH:
         return _cpu._metric_Spacing(pop, context)
 
@@ -124,11 +161,9 @@ def _metric_Spacing_Torch(front: Any, context: dict[str, Any] = None) -> float:
 
     diff = torch.abs(pop_t.unsqueeze(1) - pop_t.unsqueeze(0))
     d = torch.sum(diff, dim=2)
-    d = d + torch.eye(N, device=dev) * 1e9
+    d = d + torch.eye(N, device=dev) * float("inf")
     min_d = torch.min(d, dim=1).values
-    d_bar = torch.mean(min_d)
-    dev_sq = min_d - d_bar
-    spacing = torch.sqrt(torch.sum(dev_sq * dev_sq) / float(N))
+    spacing = torch.std(min_d, unbiased=True)
     return float(spacing.item())
 
 
@@ -137,8 +172,6 @@ def _metric_DeltaP_Torch(front: Any, context: dict[str, Any]) -> float:
     opt = _cpu._get_reference_front(context)
     if opt is None or pop.size == 0 or opt.size == 0:
         return float("nan")
-    if not _HAS_TORCH:
-        return _cpu._deltap_value(pop, opt)
     if pop.shape[1] != opt.shape[1]:
         return float("nan")
 
@@ -146,22 +179,23 @@ def _metric_DeltaP_Torch(front: Any, context: dict[str, Any]) -> float:
     pop_t = _to_torch(pop, dev)
     opt_t = _to_torch(opt, dev)
 
-    d_pop_opt = _pairwise_euclidean_torch(pop_t, opt_t)
-    gd = torch.sqrt(torch.sum(torch.min(d_pop_opt, dim=1).values ** 2)) / float(pop_t.shape[0])
-
-    d_opt_pop = _pairwise_euclidean_torch(opt_t, pop_t)
-    igd = torch.mean(torch.min(d_opt_pop, dim=1).values)
+    gd = torch.linalg.vector_norm(_tiled_min_euclidean(pop_t, opt_t)) / float(pop_t.shape[0])
+    igd = torch.mean(_tiled_min_euclidean(opt_t, pop_t))
 
     val = torch.maximum(gd, igd)
     return float(val.item())
 
 
 def _metric_HV_Torch(front: Any, context: dict[str, Any]) -> float:
+    """HV via the unified HV_fast_MC implementation (PyTorch MPS/CUDA/CPU)."""
+    from metrics.hv_fast_mc import HV_fast_MC
     pop_obj = _cpu._get_front(front)
     optimum = _cpu._get_reference_front(context)
     if optimum is None:
         return float("nan")
-    return _cpu._community_hv(pop_obj, optimum, context)
+    return float(HV_fast_MC(pop_obj, optimum,
+                            sample_num=int(context.get("hv_mc_samples", 10_000)),
+                            context=context))
 
 
 def evaluate_batch_igd_plus_torch(F_batch: Any, opt: Any) -> np.ndarray:

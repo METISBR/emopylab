@@ -23,8 +23,8 @@ def mut_gauss(X, xl, xu, sigma, prob, random_state=None):
 
     Xp[:, :] = X
 
-    _xl = np.repeat(xl[None, :], X.shape[0], axis=0)[mut]
-    _xu = np.repeat(xu[None, :], X.shape[0], axis=0)[mut]
+    _xl = np.broadcast_to(xl[None, :], X.shape)[mut]
+    _xu = np.broadcast_to(xu[None, :], X.shape)[mut]
     sigma = sigma[:, None].repeat(n_var, axis=1)[mut]
 
     Xp[mut] = random_state.normal(X[mut], sigma * (_xu - _xl))

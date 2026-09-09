@@ -92,12 +92,6 @@ class HV(Indicator):
         F = np.atleast_2d(np.asarray(F, dtype=float))
         M = F.shape[1]
 
-        if self.method == "iqhv":
-            from metrics.iqhv import iqhv
-            return iqhv(F, self.ref_point)
-        elif self.method == "hbda":
-            from metrics.hbda import hbda
-            return hbda(F, self.ref_point)
 
         if M == 2:
             return _exact_2d_hv(F, self.ref_point)
@@ -118,41 +112,6 @@ class HV(Indicator):
                 dom |= np.all(samples >= pt, axis=1)
             box_vol = np.prod(self.ref_point - min_val)
             return float(np.mean(dom) * box_vol)
-
-class IQHV(Indicator):
-    """Improved Quick Hypervolume (IQHV) indicator (Jaszkiewicz, 2018)."""
-
-    def __init__(self, ref_point: np.ndarray | Sequence[float], **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.ref_point = np.asarray(ref_point, dtype=float)
-
-    def do(self, F: np.ndarray) -> float:
-        from metrics.iqhv import iqhv
-        return iqhv(F, self.ref_point)
-
-
-class HBDA(Indicator):
-    """Hypervolume Box Decomposition Algorithm (HBDA) indicator (Lacour et al., 2017)."""
-
-    def __init__(self, ref_point: np.ndarray | Sequence[float], **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.ref_point = np.asarray(ref_point, dtype=float)
-
-    def do(self, F: np.ndarray) -> float:
-        from metrics.hbda import hbda
-        return hbda(F, self.ref_point)
-
-
-class QEHVC(Indicator):
-    """Quick Extreme Hypervolume Contribution (QEHVC) indicator (Jaszkiewicz & Zielniewicz, 2021)."""
-
-    def __init__(self, ref_point: np.ndarray | Sequence[float], **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.ref_point = np.asarray(ref_point, dtype=float)
-
-    def do(self, F: np.ndarray) -> np.ndarray:
-        from metrics.qehvc import qehvc
-        return qehvc(F, self.ref_point)
 
 class IGD(Indicator):
     """Inverted Generational Distance (IGD) indicator."""

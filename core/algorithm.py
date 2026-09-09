@@ -143,37 +143,37 @@ class Algorithm:
     ) -> None:
         super().__init__()
 
-        # Hardware-backend configuration
+        # Hardware-backend configuration mirrors core/tensor/backend.py order.
         self.use_gpu_requested = bool(use_gpu)
         self.array_backend_requested = str(array_backend).strip().lower() or "auto"
         self.gpu_dtype = str(gpu_dtype).strip().lower() or "float32"
-
         try:
-            from core.execution.backend_runtime import (
-                apple_silicon_available,
-                detect_mlx_runtime,
-            )
-
+            from core.execution.backend_runtime import detect_mlx_runtime, detect_torch_runtime
             req = self.array_backend_requested
             if req == "auto":
-                req = (
-                    "mlx"
-                    if apple_silicon_available()
-                    else ("jax" if self.use_gpu_requested else "numpy")
-                )
-
+                if detect_mlx_runtime().get("mlx_ok"):
+                    req = "mlx"
+                else:
+                    info = detect_torch_runtime()
+                    if info.get("cuda_ok") or info.get("mps_ok") or info.get("rocm_ok"):
+                        req = "torch"
+                    elif self.use_gpu_requested:
+                        req = "cupy"
+                    else:
+                        req = "numpy"
             self.array_backend_effective = req
-            if req == "mlx":
-                info = detect_mlx_runtime()
-                if not info.get("mlx_ok"):
-                    self.array_backend_effective = "numpy"
+            if req == "mlx" and not detect_mlx_runtime().get("mlx_ok"):
+                self.array_backend_effective = "numpy"
+            elif req == "torch":
+                info = detect_torch_runtime()
+                if not (info.get("cuda_ok") or info.get("mps_ok") or info.get("rocm_ok")):
+                    self.array_backend_effective = "cupy" if self.use_gpu_requested else "numpy"
         except Exception:
-            self.array_backend_effective = (
-                "jax" if self.use_gpu_requested else "numpy"
-            )
-
+            self.array_backend_effective = "cupy" if self.use_gpu_requested else "numpy"
+        if self.array_backend_effective == "cpu":
+            self.array_backend_effective = "numpy"
         self.array_backend = self.array_backend_effective
-        self.use_gpu = self.array_backend_effective in {"jax", "mlx"}
+        self.use_gpu = self.array_backend_effective in {"mlx", "torch", "cupy"}
         self.backend_state = {
             "requested_backend": self.array_backend_requested,
             "effective_backend": self.array_backend_effective,

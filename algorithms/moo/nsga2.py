@@ -24,13 +24,41 @@ __all__ = [
 
 
 def binary_tournament(pop: Population, P: np.ndarray, **kwargs: Any) -> np.ndarray:
-    """Binary tournament comparison function based on dominance rank and crowding distance."""
+    """Binary tournament comparison function based on dominance rank and crowding distance.
+
+    Vectorized fast path only when every tournament is decided by CV, rank,
+    or strict crowding difference. Exact ties fall through to the scalar loop
+    so random_state tie-breaks stay bit-identical.
+    """
     n_tournaments, n_parents = P.shape
     if n_parents != 2:
         raise ValueError("Only implemented for binary tournament!")
 
     S = np.full(n_tournaments, np.nan)
     random_state = kwargs.get("random_state", None)
+
+    try:
+        _a = np.asarray(P[:, 0], dtype=int)
+        _b = np.asarray(P[:, 1], dtype=int)
+        _cv = np.array([float(getattr(pop[i], "cv", 0.0) or 0.0) for i in np.concatenate([_a, _b])]).reshape(2, -1)
+        _rk = np.array([getattr(pop[i], "rank", None) for i in np.concatenate([_a, _b])], dtype=object).reshape(2, -1)
+        _cr = np.array([getattr(pop[i], "crowding", None) for i in np.concatenate([_a, _b])], dtype=object).reshape(2, -1)
+        _cv_all_split = bool(np.all(_cv[0] != _cv[1]))
+        _meta_present = all(v is not None for v in _rk.ravel()) and all(v is not None for v in _cr.ravel())
+        _cv_all_equal = bool(np.all(_cv[0] == _cv[1]))
+        if _cv_all_split or (
+            _meta_present
+            and _cv_all_equal
+            and (bool(np.all(_rk[0] != _rk[1])) or bool(np.all(_cr[0] != _cr[1])))
+        ):
+            _cva, _cvb = _cv[0].astype(float), _cv[1].astype(float)
+            _rka, _rkb = _rk[0].astype(float), _rk[1].astype(float)
+            _cra, _crb = _cr[0].astype(float), _cr[1].astype(float)
+            _win_a = (_cva < _cvb) | ((_cva == _cvb) & ((_rka < _rkb) | ((_rka == _rkb) & (_cra > _crb))))
+            S = np.where(_win_a, _a, _b).astype(float)
+            return S[:, None].astype(int, copy=False)
+    except Exception:
+        pass
 
     for i in range(n_tournaments):
         a, b = P[i, 0], P[i, 1]

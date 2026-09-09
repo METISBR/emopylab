@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "emopylab"
-version = "1.0.3"
+version = "1.0.4"
 description = "A tensor-native, hardware-accelerated laboratory for multi- and many-objective evolutionary optimization, reproducible benchmarking, and post-hoc MCDM."
 readme = "README.md"
 authors = [

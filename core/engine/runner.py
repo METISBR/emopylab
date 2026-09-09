@@ -139,23 +139,14 @@ def _resolve_algorithm_instance(algorithm_name: str, pop_size: int = 100, **kwar
             except Exception:
                 pass
 
-    elif name_clean in ("NSGA3", "NSGAIII"):
-        try:
-            from algorithms.moo.nsga3 import NSGA3
-            from util.ref_dirs import get_reference_directions
-            n_obj = kwargs.get("n_obj", 3)
-            ref_dirs = kwargs.get("ref_dirs")
-            if ref_dirs is None:
-                ref_dirs = get_reference_directions("das-dennis", n_obj, n_partitions=12)
-            return NSGA3(ref_dirs=ref_dirs, pop_size=pop_size)
-        except Exception:
-            try:
-                from algorithms.native.nsga3 import NativeNSGA3
-                sig = inspect.signature(NativeNSGA3.__init__)
-                valid_kw = {k: v for k, v in kwargs.items() if k in sig.parameters}
-                return NativeNSGA3(pop_size=pop_size, **valid_kw)
-            except Exception:
-                pass
+    elif name_clean in ("NSGA3", "NSGAIII", "NSGA3LOCAL"):
+        from algorithms.nsga3_local.nsga3_local import NSGA3Local
+        from util.ref_dirs import get_reference_directions
+        n_obj = kwargs.get("n_obj", 3)
+        ref_dirs = kwargs.get("ref_dirs")
+        if ref_dirs is None:
+            ref_dirs = get_reference_directions("das-dennis", n_obj, n_partitions=12)
+        return NSGA3Local(ref_dirs=ref_dirs, pop_size=pop_size)
 
     elif name_clean in ("MOEAD", "MOEA/D"):
         try:

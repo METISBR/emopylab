@@ -1,195 +1,345 @@
 # -*- coding: utf-8 -*-
-# emopylab 2026
-"""TC-MaOEA: Tangent-Coupled Many-Objective Evolutionary Algorithm.
+# Author: Prof. Thiago Santos & METISBr Research Group, 2026
+"""Tangent-Coupled Many-Objective Evolutionary Algorithm (TC-MaOEA).
 
-A mathematically unified solver for degenerate and irregular many-objective problems.
-Couples objective-space manifold SVD tangent bundles with decision-space pullback projectors
-and canonical reference-direction environmental selection.
+Implements the differential tangent-bundle pullback architecture
+for degenerate and irregular Pareto geometries.
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, List, Optional
 import numpy as np
 
 from core.algorithm import Algorithm
 from core.population import Population
-from operators.utility_functions.NDSort import NDSort
-from util.optimum import filter_optimum
-from operators.sampling.lhs import LHS
-from core.mating import Mating
-from operators.crossover.sbx import SBX
-from operators.mutation.pm import PolynomialMutation
-from operators.selection.tournament import TournamentSelection
-from algorithms.moo.sms import cv_and_dom_tournament
-from algorithms.nsga3_local.nsga3_local import (
-    _environmental_selection,
-    _update_zmin,
-    _population_objectives,
-)
-from algorithms.community_utils.moead_family import rng_from_algo
-from util.ref_dirs import get_reference_directions
+from operators.utility_functions.UniformPoint import UniformPoint
+from util.array_backend import to_numpy
+from util.nds.non_dominated_sorting import NonDominatedSorting
+from algorithms.community_utils.moead_family import sample_initial
 
 from .tangent_operator import (
+    project_simplex,
+    certify_empirical_descent,
+    solve_kkt_simplex_qp,
+    svd_manifold_decomposition,
+    compute_eej,
     build_pullback_projectors,
-    compute_eej_jacobian,
-    compute_manifold_tangent_basis,
+    reflective_clamp,
+    apd_environmental_selection,
+    population_matrix,
 )
 
 ALGORITHM_FLAGS = {
-    "TC-MaOEA": {"multi", "many", "real", "tangent_bundle", "manifold"},
-    "TCMaOEA": {"multi", "many", "real", "tangent_bundle", "manifold"},
+    "TC_MaOEA": {"multi", "many", "real", "constrained"},
+    "TCMaOEA": {"multi", "many", "real", "constrained"},
 }
 
+__all__ = [
+    "TC_MaOEA",
+    "TCMaOEA",
+    "project_simplex",
+    "certify_empirical_descent",
+    "solve_kkt_simplex_qp",
+    "svd_manifold_decomposition",
+    "compute_eej",
+    "build_pullback_projectors",
+    "reflective_clamp",
+    "apd_environmental_selection",
+]
 
-class TCMaOEA(Algorithm):
+
+class TC_MaOEA(Algorithm):
     """Tangent-Coupled Many-Objective Evolutionary Algorithm (TC-MaOEA).
 
-    Parameters
-    ----------
-    pop_size : int, default=100
-        Population size (fixed at 100).
-    ref_dirs : np.ndarray | None, default=None
-        Pre-defined reference directions of shape (K, M). If None, generated via get_reference_directions('energy', n_points=100).
-    tau : float, default=0.95
-        Cumulative energy threshold for intrinsic dimension SVD detection.
-    alpha_tangent : float, default=0.25
-        Tangent bundle exploration amplification factor.
+    Parameters:
+        pop_size: Population size (default: 100).
+        ref_dirs: Explicit reference directions of shape (K, M). When provided,
+                  pop_size matches len(ref_dirs) exactly.
+        tau_var: Relative variance floor for SVD dimension estimation (default: 1e-3).
+        tau_gap: Spectral eigengap threshold for SVD dimension estimation (default: 50.0).
+        reg_scale: Tikhonov regularization scaling for EEJ Jacobian (default: 1e-6).
+        gamma: Regularization for damped right inverse (default: 1e-8).
+        alpha: APD penalty exponent transitioning diversity to convergence (default: 2.0).
+        scale_normal_step: Whether to scale normal KKT step by mean DE displacement (default: True).
+        early_normal_cap: Whether to cap normal weight eta_N at 0.3 during the first
+                          30% of the evaluation budget (default: False).
     """
-
-    ALGO_FLAGS = {"multi", "many", "real", "tangent_bundle", "manifold"}
-    OBJECTIVE_SCOPE = "many"
 
     def __init__(
         self,
         pop_size: int = 100,
         ref_dirs: Optional[np.ndarray] = None,
-        tau: float = 0.95,
-        alpha_tangent: float = 0.25,
-        sampling: Any = None,
+        tau_var: float = 1e-3,
+        tau_gap: float = 50.0,
+        reg_scale: float = 1e-6,
+        gamma: float = 1e-8,
+        alpha: float = 2.0,
+        scale_normal_step: bool = True,
+        early_normal_cap: bool = False,
+        sampling=None,
+        seed: Optional[int] = None,
+        use_gpu: bool = False,
+        array_backend: str = "auto",
+        gpu_dtype: str = "float32",
         **kwargs: Any,
     ) -> None:
-        super().__init__(**kwargs)
+        super().__init__(
+            seed=seed,
+            use_gpu=use_gpu,
+            array_backend=array_backend,
+            gpu_dtype=gpu_dtype,
+            **kwargs,
+        )
         self.pop_size = int(max(pop_size, 4))
-        self.ref_dirs = None if ref_dirs is None else np.asarray(ref_dirs, dtype=float)
-        self.tau = float(np.clip(tau, 0.50, 0.99))
-        self.alpha_tangent = float(alpha_tangent)
+        self.ref_dirs = ref_dirs
+        self.tau_var = float(tau_var)
+        self.tau_gap = float(tau_gap)
+        self.reg_scale = float(reg_scale)
+        self.gamma = float(gamma)
+        self.alpha = float(alpha)
+        self.scale_normal_step = bool(scale_normal_step)
+        self.early_normal_cap = bool(early_normal_cap)
         self.sampling = sampling
 
-        # Internal state variables
-        self.zmin: Optional[np.ndarray] = None
-        self.d_star: int = 1
-        self.V_d: np.ndarray = np.empty((0, 0), dtype=float)
-        self.sigma: np.ndarray = np.empty(0, dtype=float)
-        self.J: np.ndarray = np.empty((0, 0), dtype=float)
-        self.P_T: np.ndarray = np.empty((0, 0), dtype=float)
-        self.xl: np.ndarray = np.empty(0, dtype=float)
-        self.xu: np.ndarray = np.empty(0, dtype=float)
-
-        # Evolutionary mating operators
-        self.selection = TournamentSelection(func_comp=cv_and_dom_tournament)
-        self.crossover = SBX(prob=1.0, eta=15)
-        self.mutation = PolynomialMutation(eta=20)
-        self.mating = Mating(
-            selection=self.selection,
-            crossover=self.crossover,
-            mutation=self.mutation,
-        )
+        # Internal state
+        self.W: Optional[np.ndarray] = None
+        self.W_adapt: Optional[np.ndarray] = None
+        self.z_min: Optional[np.ndarray] = None
+        self.z_max: Optional[np.ndarray] = None
+        self.d_star: int = 2
+        self.sigmas: Optional[np.ndarray] = None
+        self.P_T: Optional[np.ndarray] = None
+        self.P_N: Optional[np.ndarray] = None
+        self.d_kkt: Optional[np.ndarray] = None
+        self.eta_T: float = 1.0
+        self.eta_N: float = 0.0
 
     def _setup(self, problem: Any, **kwargs: Any) -> None:
-        super()._setup(problem, **kwargs)
         M = int(problem.n_obj)
-        D = int(problem.n_var)
-
-        self.xl = np.asarray(problem.xl, dtype=float).copy()
-        self.xu = np.asarray(problem.xu, dtype=float).copy()
-
-        # Fixed reference directions (100 points for any M)
-        if self.ref_dirs is not None and self.ref_dirs.ndim == 2 and self.ref_dirs.shape[1] == M:
-            self.ref_dirs = np.asarray(self.ref_dirs, dtype=float)
-            self.pop_size = len(self.ref_dirs)
+        if self.ref_dirs is not None:
+            self.W = np.asarray(to_numpy(self.ref_dirs), dtype=float)
+            self.pop_size = len(self.W)
         else:
-            self.ref_dirs = get_reference_directions("energy", n_obj=M, n_points=self.pop_size)
+            w_init, n_eff = UniformPoint(self.pop_size, M)
+            w_arr = np.asarray(w_init, dtype=float)
+            if len(w_arr) == self.pop_size:
+                self.W = w_arr
+            else:
+                try:
+                    from util.ref_dirs import get_reference_directions
+                    self.W = get_reference_directions("energy", n_obj=M, n_points=self.pop_size)
+                except Exception:
+                    self.W = w_arr
+                    self.pop_size = len(self.W)
+        self.W_adapt = np.copy(self.W)
 
-        self.zmin = None
-        self.d_star = max(1, M - 1)
-        self.P_T = np.eye(D, dtype=float)
-
-    def _initialize_infill(self) -> Population:
-        """Generate initial population using Latin Hypercube Sampling."""
-        if self.sampling is not None and hasattr(self.sampling, "do"):
-            return self.sampling.do(self.problem, self.pop_size)
-        return LHS().do(self.problem, self.pop_size)
+    def _initialize_infill(self) -> Optional[Population]:
+        return sample_initial(self.problem, self.pop_size, self.sampling, self.random_state)
 
     def _initialize_advance(self, infills: Optional[Population] = None, **kwargs: Any) -> None:
-        if infills is None or len(infills) == 0:
-            self.pop = Population.empty()
+        self.pop = infills if infills is not None else Population.empty()
+        if len(self.pop) == 0:
             self.opt = self.pop
             return
 
-        self.pop = infills
-        self.zmin = _update_zmin(self.zmin, self.pop, int(self.problem.n_obj))
-        self.opt = filter_optimum(self.pop, least_infeasible=True)
+        F = population_matrix(self.pop, "F")
+        self.z_min = np.min(F, axis=0)
+        self.z_max = np.max(F, axis=0)
+        self._update_tangent_operators()
+        self._set_optimum()
+
+    def _set_fallback_operators(self, D: int) -> None:
+        self.W_adapt = np.copy(self.W) if self.W is not None else None
+        self.P_T = np.eye(D)
+        self.P_N = np.zeros((D, D))
+        self.d_kkt = np.zeros(D)
+        self.eta_T = 1.0
+        self.eta_N = 0.0
+
+    def _update_tangent_operators(self) -> None:
+        """Executes SVD manifold decomposition, reference vector adaptation,
+
+        EEJ regression, pullback projector construction, and KKT descent resolution.
+        """
+        if self.pop is None or len(self.pop) < 2:
+            return
+
+        X = population_matrix(self.pop, "X")
+        F = population_matrix(self.pop, "F")
+        M = int(self.problem.n_obj)
+        D = int(X.shape[1])
+
+        self.z_min = np.minimum(self.z_min, np.min(F, axis=0))
+        self.z_max = np.maximum(self.z_max, np.max(F, axis=0))
+
+        # True non-dominated front count before pooling
+        nds = NonDominatedSorting()
+        fronts = nds.do(F)
+        n_nd = len(fronts[0]) if len(fronts) > 0 else 0
+
+        # Elite sample pooling for statistical estimation (requires at least max(4, M) points)
+        elite_idx = np.array(fronts[0], dtype=int) if len(fronts) > 0 else np.array([], dtype=int)
+        if len(elite_idx) < max(4, M):
+            pooled: List[int] = []
+            for fr in fronts:
+                pooled.extend(fr)
+                if len(pooled) >= max(4, M):
+                    break
+            elite_idx = np.array(pooled, dtype=int)
+
+        if len(elite_idx) < 2:
+            self._set_fallback_operators(D)
+            return
+
+        X_elite = X[elite_idx]
+        F_elite = F[elite_idx]
+
+        span = np.maximum(self.z_max - self.z_min, 1e-12)
+        F_norm = (F_elite - self.z_min[None, :]) / span[None, :]
+
+        # 1. Spectral Manifold Decomposition
+        d_star, V_dstar, sigmas = svd_manifold_decomposition(
+            F_norm, tau_var=self.tau_var, tau_gap=self.tau_gap
+        )
+        self.d_star = d_star
+        self.sigmas = sigmas
+
+        sigma_1 = float(sigmas[0]) if len(sigmas) > 0 else 0.0
+        sigma_d = float(sigmas[d_star - 1]) if (d_star >= 1 and len(sigmas) >= d_star) else 0.0
+        finite_spectrum = bool(np.all(np.isfinite(sigmas))) and (sigma_1 > 0)
+        sigma_ratio = (sigma_d / sigma_1) if (finite_spectrum and sigma_1 > 0) else 0.0
+
+        # Two-sided gate: N_ND >= 3*M, finite spectrum, d_star >= 1, spectral health ratio > 1e-2
+        gate_ok = (n_nd >= 3 * M) and finite_spectrum and (d_star >= 1) and (sigma_ratio > 1e-2)
+
+        if not gate_ok:
+            self._set_fallback_operators(D)
+            return
+
+        # 2. Reference Vector Manifold Projection with row fallback
+        W_proj = self.W @ V_dstar @ V_dstar.T
+        norm_proj = np.linalg.norm(W_proj, axis=1, keepdims=True)
+        valid_norm = norm_proj[:, 0] > 1e-12
+        W_adapt = np.copy(self.W)
+        W_adapt[valid_norm] = W_proj[valid_norm] / norm_proj[valid_norm]
+        self.W_adapt = W_adapt
+
+        # 3. Ensemble Evolutionary Jacobian (EEJ)
+        J = compute_eej(X_elite, F_norm, reg_scale=self.reg_scale)
+
+        # 4. Pullback Projectors in Decision Space
+        P_T, P_N = build_pullback_projectors(J, V_dstar, gamma=self.gamma)
+        self.P_T = P_T
+        self.P_N = P_N
+
+        # 5. Dual Simplex KKT Pareto Descent Vector
+        _, d_kkt = solve_kkt_simplex_qp(J)
+        self.d_kkt = d_kkt
+
+        # 6. Dynamic Spectral Balancing
+        eta_T = float(np.clip(np.sqrt(sigma_ratio), 0.0, 1.0))
+        eta_N = 1.0 - eta_T
+
+        if self.early_normal_cap:
+            curr_eval = float(self.n_evals)
+            max_eval = float(getattr(self.termination, "n_max_evals", getattr(self.termination, "n_max_eval", 30000)))
+            t_ratio = float(np.clip(curr_eval / max(max_eval, 1.0), 0.0, 1.0))
+            if t_ratio < 0.3:
+                eta_N = min(eta_N, 0.3)
+                eta_T = 1.0 - eta_N
+
+        self.eta_T = eta_T
+        self.eta_N = eta_N
+
+    def _compute_delta_x(self, delta_T: np.ndarray, delta_N: np.ndarray, N: int, D: int) -> np.ndarray:
+        return self.eta_T * delta_T + self.eta_N * delta_N[None, :]
 
     def _infill(self) -> Optional[Population]:
-        """Generate offspring population using Tangent-Bundle Pullback Variation."""
         if self.pop is None or len(self.pop) == 0:
-            return self._initialize_infill()
+            return sample_initial(self.problem, self.pop_size, self.sampling, self.random_state)
 
-        # 1. Generate base evolutionary candidates via standard mating
-        offspring_raw = self.mating.do(self.problem, self.pop, self.pop_size)
-        X_raw = np.asarray(offspring_raw.get("X"), dtype=float)
-        X_pop = np.asarray(self.pop.get("X"), dtype=float)
+        X = population_matrix(self.pop, "X")
+        N, D = X.shape
+        xl = np.asarray(to_numpy(self.problem.xl), dtype=float)
+        xu = np.asarray(to_numpy(self.problem.xu), dtype=float)
 
-        # 2. Tangent-Coupled Guidance:
-        # Project displacement onto tangent bundle P_T to accelerate manifold alignment,
-        # while keeping full evolutionary variation on the normal distance subspace
-        delta = X_raw - X_pop
-        delta_tangent = delta @ self.P_T.T
-        delta_normal = delta - delta_tangent
+        P_T = self.P_T if self.P_T is not None else np.eye(D)
+        P_N = self.P_N if self.P_N is not None else np.zeros((D, D))
+        d_kkt = self.d_kkt if self.d_kkt is not None else np.zeros(D)
 
-        # Tangent amplification factor along the manifold
-        X_off = X_pop + (1.0 + self.alpha_tangent) * delta_tangent + delta_normal
-        X_off = np.clip(X_off, self.xl, self.xu)
+        arange_N = np.arange(N)
+        if N >= 3:
+            if hasattr(self.random_state, "integers"):
+                r1 = self.random_state.integers(0, N - 1, size=N)
+            else:
+                r1 = self.random_state.randint(0, N - 1, size=N)
+            r1[r1 >= arange_N] += 1
 
-        return Population.new("X", X_off)
+            if hasattr(self.random_state, "integers"):
+                r2 = self.random_state.integers(0, N - 2, size=N)
+            else:
+                r2 = self.random_state.randint(0, N - 2, size=N)
+            min_r = np.minimum(arange_N, r1)
+            max_r = np.maximum(arange_N, r1)
+            r2[r2 >= min_r] += 1
+            r2[r2 >= max_r] += 1
+        else:
+            r1 = (arange_N + 1) % N
+            r2 = (arange_N + 2) % N
 
-    def _advance(self, infills: Optional[Population] = None, **kwargs: Any) -> None:
-        """Advance algorithm state, refresh manifold tangent bundle, and select survivors."""
+        delta_de = X[r1] - X[r2]
+        delta_T = delta_de @ P_T.T
+
+        pn_dkkt = P_N @ d_kkt
+        if self.scale_normal_step:
+            norm_pn = float(np.linalg.norm(pn_dkkt))
+            mean_de = float(np.mean(np.linalg.norm(delta_de, axis=1)))
+            scale = mean_de / (norm_pn + 1e-8)
+            delta_N = scale * pn_dkkt
+        else:
+            delta_N = pn_dkkt
+
+        delta_x = self._compute_delta_x(delta_T, delta_N, N, D)
+        offspring_X = reflective_clamp(X + delta_x, xl, xu)
+        return Population.new("X", offspring_X)
+
+    def _advance(self, infills: Optional[Population] = None, **kwargs: Any) -> Any:
         if infills is None or len(infills) == 0:
             return
 
+        off_F = population_matrix(infills, "F")
+        self.z_min = np.minimum(self.z_min, np.min(off_F, axis=0))
+        self.z_max = np.maximum(self.z_max, np.max(off_F, axis=0))
+
         merged = Population.merge(self.pop, infills)
-        self.zmin = _update_zmin(self.zmin, merged, int(self.problem.n_obj))
 
-        F_merged = _population_objectives(merged)
-        X_merged = np.asarray(merged.get("X"), dtype=float)
+        curr_eval = float(self.n_evals)
+        max_eval = float(getattr(self.termination, "n_max_evals", getattr(self.termination, "n_max_eval", 30000)))
+        t_ratio = float(np.clip(curr_eval / max(max_eval, 1.0), 0.0, 1.0))
 
-        # Refresh tangent bundle using current elite non-dominated front
-        front_no, _ = NDSort(F_merged, len(F_merged))
-        nd_idx = np.where(np.asarray(front_no).reshape(-1) == 1)[0]
-        if len(nd_idx) < 2:
-            nd_idx = np.arange(min(len(F_merged), self.pop_size))
-
-        z_nad = np.max(F_merged[nd_idx], axis=0)
-        self.d_star, self.V_d, self.sigma = compute_manifold_tangent_basis(
-            F_merged[nd_idx], self.zmin, z_nad, tau=self.tau
+        self.pop = apd_environmental_selection(
+            pool=merged,
+            W_adapt=self.W_adapt if self.W_adapt is not None else self.W,
+            z_min=self.z_min,
+            z_max=self.z_max,
+            n_survive=self.pop_size,
+            t_ratio=t_ratio,
+            alpha=self.alpha,
         )
-        self.J = compute_eej_jacobian(X_merged[nd_idx], F_merged[nd_idx])
-        self.P_T, _ = build_pullback_projectors(self.J, self.V_d)
 
-        # Environmental selection using canonical NSGA-3 selection on ref_dirs
-        selected = _environmental_selection(
-            merged,
-            self.pop_size,
-            np.asarray(self.ref_dirs, dtype=float),
-            np.asarray(self.zmin, dtype=float),
-            rng_from_algo(self),
-        )
-        self.pop = selected
-        self.opt = filter_optimum(self.pop, least_infeasible=True)
+        self._update_tangent_operators()
+        self._set_optimum()
+
+    def _set_optimum(self) -> None:
+        if self.pop is None or len(self.pop) == 0:
+            return
+        F = population_matrix(self.pop, "F")
+        nds = NonDominatedSorting()
+        fronts = nds.do(F)
+        if len(fronts) > 0 and len(fronts[0]) > 0:
+            self.opt = self.pop[np.array(fronts[0], dtype=int)]
+        else:
+            self.opt = self.pop
 
 
-ALGORITHMS = {
-    "TC-MaOEA": TCMaOEA,
-    "TCMaOEA": TCMaOEA,
-}
+TCMaOEA = TC_MaOEA

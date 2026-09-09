@@ -25,8 +25,8 @@ def mut_pm(X, xl, xu, eta, prob, at_least_once, random_state=None):
 
     Xp[:, :] = X
 
-    _xl = np.repeat(xl[None, :], X.shape[0], axis=0)[mut]
-    _xu = np.repeat(xu[None, :], X.shape[0], axis=0)[mut]
+    _xl = np.broadcast_to(xl[None, :], X.shape)[mut]
+    _xu = np.broadcast_to(xu[None, :], X.shape)[mut]
 
     X = X[mut]
     eta = np.tile(eta[:, None], (1, n_var))[mut]

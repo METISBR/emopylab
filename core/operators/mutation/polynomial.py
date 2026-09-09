@@ -16,8 +16,9 @@ def polynomial_mutation_tensor(
     eta: float = 20.0,
     prob_var: float | None = None,
     seed: int = 42,
+    at_least_once: bool = False,
 ) -> Any:
-    """Computes Polynomial Mutation (PM) in a single vectorized GPU tensor operation."""
+    """Vectorized Polynomial Mutation for native tensor solvers (not a drop-in mut_pm)."""
     xp = get_array_module()
     N, D = X.shape
 
@@ -65,6 +66,19 @@ def polynomial_mutation_tensor(
 
     delta_q = xp.where(u <= 0.5, delta_q_left, delta_q_right)
 
+    if at_least_once:
+        if is_torch:
+            empty = ~mutate_mask.any(dim=1)
+            mutate_mask[empty, 0] = True
+        elif is_mlx:
+            import mlx.core as mx  # noqa: F811
+            empty = np.asarray((~mutate_mask.any(axis=1)))
+            if bool(np.any(empty)):
+                mutate_mask = mx.array(np.asarray(mutate_mask))
+                mutate_mask[empty, 0] = True
+        else:
+            empty = ~mutate_mask.any(axis=1)
+            mutate_mask[empty, 0] = True
     X_mut = X + delta_q * (xu - xl)
     X_out = xp.where(mutate_mask, X_mut, X)
     return clip_bounds(X_out, xl, xu)

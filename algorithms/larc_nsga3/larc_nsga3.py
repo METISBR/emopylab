@@ -51,6 +51,9 @@ from core.llm.local_llm import (
     LocalLLMClient,
 )
 
+# Compatibility alias for legacy test benchmarks
+LMStudioPolicyClient = LocalLLMClient
+
 logger = logging.getLogger(__name__)
 
 ALGORITHM_FLAGS = {

@@ -37,8 +37,8 @@ def cross_sbx(X, xl, xu, eta, prob_var, prob_bin, eps=1.0e-14, random_state=None
     y2 = np.where(sm, p2, p1)
 
     # mask all the values that should be crossovered
-    _xl = np.repeat(xl[None, :], n_matings, axis=0)[cross]
-    _xu = np.repeat(xu[None, :], n_matings, axis=0)[cross]
+    _xl = np.broadcast_to(xl[None, :], (n_matings, X.shape[2]))[cross]
+    _xu = np.broadcast_to(xu[None, :], (n_matings, X.shape[2]))[cross]
     eta = eta.repeat(n_var, axis=1)[cross]
     prob_bin = prob_bin.repeat(n_var, axis=1)[cross]
 

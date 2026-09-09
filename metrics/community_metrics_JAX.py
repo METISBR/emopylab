@@ -35,6 +35,45 @@ def _pairwise_cityblock_jax(a: Any, b: Any):
     return jnp.sum(jnp.abs(aa[:, None, :] - bb[None, :, :]), axis=2)
 
 
+_TILE_BUDGET = 2 ** 26
+
+
+def _tiled_min_jax(aa: Any, bb: Any) -> Any:
+    """Row-wise min Euclidean distance, tiled over bb (never N x K x M)."""
+    n, k = int(aa.shape[0]), int(bb.shape[0])
+    m = int(aa.shape[1])
+    tile = max(1, min(k, _TILE_BUDGET // max(1, n * m)))
+    best = None
+    for start in range(0, k, tile):
+        chunk = bb[start:start + tile]
+        d = jnp.linalg.norm(aa[:, None, :] - chunk[None, :, :], axis=2)
+        cur = jnp.min(d, axis=1)
+        best = cur if best is None else jnp.minimum(best, cur)
+    return best
+
+
+def _tiled_min_igdp_jax(pop_j: Any, opt_j: Any, p: float) -> Any:
+    """IGD+ row minima per OPT row, tiled over POP rows (matches CPU delta)."""
+    n, k = int(pop_j.shape[0]), int(opt_j.shape[0])
+    m = int(pop_j.shape[1])
+    tile = max(1, min(n, _TILE_BUDGET // max(1, k * m)))
+    pf = float(p)
+    best = None
+    for start in range(0, n, tile):
+        chunk = pop_j[start:start + tile]
+        diff = jnp.maximum(chunk[None, :, :] - opt_j[:, None, :], 0.0)
+        if abs(pf - 2.0) <= 1e-12:
+            dist = jnp.sqrt(jnp.sum(diff * diff, axis=2))
+        elif abs(pf - 1.0) <= 1e-12:
+            dist = jnp.sum(diff, axis=2)
+        else:
+            p32 = jnp.asarray(pf, dtype=jnp.float32)
+            dist = jnp.sum(jnp.power(diff, p32), axis=2) ** (1.0 / p32)
+        cur = jnp.min(dist, axis=1)
+        best = cur if best is None else jnp.minimum(best, cur)
+    return best
+
+
 def _metric_DeltaP_JAX(front, context):
     if not _HAS_JAX:
         pop = _cpu._get_front(front)
@@ -54,6 +93,7 @@ def _metric_DeltaP_JAX(front, context):
 
 
 def _metric_GD_JAX(front, context):
+    """Registry GD on JAX: norm(min distances)/N, float32 device math."""
     if not _HAS_JAX:
         pop = _cpu._get_front(front)
         opt = _cpu._get_reference_front(context)
@@ -64,8 +104,9 @@ def _metric_GD_JAX(front, context):
     opt = _cpu._get_reference_front(context)
     if opt is None or pop.size == 0 or pop.shape[1] != opt.shape[1]:
         return float("nan")
-    d = _pairwise_euclidean_jax(pop, opt)
-    nearest = jnp.min(d, axis=1)
+    pop_j = jnp.atleast_2d(jnp.asarray(pop, dtype=jnp.float32))
+    opt_j = jnp.atleast_2d(jnp.asarray(opt, dtype=jnp.float32))
+    nearest = _tiled_min_jax(pop_j, opt_j)
     return float(jnp.linalg.norm(nearest) / max(1, int(nearest.shape[0])))
 
 
@@ -98,15 +139,7 @@ def _metric_IGDp_JAX(front, context):
     p = _cpu._igdp_p_from_context(context, default=2.0)
     pop_j = jnp.atleast_2d(jnp.asarray(pop, dtype=jnp.float32))
     opt_j = jnp.atleast_2d(jnp.asarray(opt, dtype=jnp.float32))
-    diff = jnp.maximum(pop_j[None, :, :] - opt_j[:, None, :], 0.0)
-    if abs(float(p) - 2.0) <= 1e-12:
-        dist = jnp.sqrt(jnp.sum(diff * diff, axis=2))
-    elif abs(float(p) - 1.0) <= 1e-12:
-        dist = jnp.sum(diff, axis=2)
-    else:
-        p32 = jnp.asarray(float(p), dtype=jnp.float32)
-        dist = jnp.sum(jnp.power(diff, p32), axis=2) ** (1.0 / p32)
-    return float(jnp.mean(jnp.min(dist, axis=1)))
+    return float(jnp.mean(_tiled_min_igdp_jax(pop_j, opt_j, p)))
 
 
 def _metric_IGDX_JAX(front, context):
@@ -511,17 +544,6 @@ def _metric_R2_JAX(front, context):
     min_over_pop = jnp.min(chebyshev, axis=0)
     return float(jnp.mean(min_over_pop))
 
-def _metric_IQHV_JAX(front, context):
-    """Fallback wrapper delegating IQHV to verified CPU implementation."""
-    return _cpu._metric_IQHV(front, context)
-
-def _metric_HBDA_JAX(front, context):
-    """Fallback wrapper delegating HBDA to verified CPU implementation."""
-    return _cpu._metric_HBDA(front, context)
-
-def _metric_QEHVC_JAX(front, context):
-    """Fallback wrapper delegating QEHVC to verified CPU implementation."""
-    return _cpu._metric_QEHVC(front, context)
 
 METRICS = {
     "CPF_JAX": _metric_CPF_JAX,
@@ -550,9 +572,6 @@ METRICS = {
     "Worst_HV_JAX": _metric_Worst_HV_JAX,
     "Worst_IGD_JAX": _metric_Worst_IGD_JAX,
     "R2_JAX": _metric_R2_JAX,
-    "IQHV_JAX": _metric_IQHV_JAX,
-    "HBDA_JAX": _metric_HBDA_JAX,
-    "QEHVC_JAX": _metric_QEHVC_JAX,
 }
 
 

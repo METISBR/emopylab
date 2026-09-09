@@ -6004,17 +6004,9 @@ class EmoPyLabMainWindow(QMainWindow):
     def _is_default_metric_checked(self, spec: MetricSpec) -> bool:
         metric_name_norm = re.sub(r"[^a-z0-9]+", "", spec.name.lower())
         metric_id_norm = re.sub(r"[^a-z0-9]+", "", spec.id.lower())
-        # Default metric: Fast-MC Hypervolume (hv_fast / hv_fast_mc / fast_mc)
-        is_hv_fast = (
-            "hvfast" in metric_name_norm
-            or "fastmc" in metric_name_norm
-            or "hvfastmc" in metric_name_norm
-            or "hvfast" in metric_id_norm
-            or "fastmc" in metric_id_norm
-            or "hvfastmc" in metric_id_norm
-            or metric_name_norm == "hvfast"
-        )
-        return bool(is_hv_fast)
+        # Default metric: IQHV exact hypervolume (iqhv)
+        is_iqhv = "iqhv" in metric_name_norm or "iqhv" in metric_id_norm
+        return bool(is_iqhv)
     def _normalize_operator_value(self, operator_type: str, value: Any) -> Any:
         if not isinstance(value, str):
             return value
@@ -7198,9 +7190,9 @@ class EmoPyLabMainWindow(QMainWindow):
             "",
             "Requirements:",
             "- Generate exactly one Problem plugin pair (CPU and JAX) compatible with EmoPyLab.",
-            "- Use `from pymoo.core.problem import Problem` and vectorized `_evaluate(self, X, out, *args, **kwargs)`.",
+            "- Use `from core.problem import Problem` (the `pymoo.*` module alias remains as fallback) and vectorized `_evaluate(self, X, out, *args, **kwargs)`.",
             "- Set `out['F']` with shape (N, n_obj) and define valid `xl` / `xu` bounds.",
-            "- If constrained, use pymoo constraint API (`n_ieq_constr` / `n_eq_constr`) and write `out['G']` / `out['H']`.",
+            "- If constrained, use the native constraint API (`n_ieq_constr` / `n_eq_constr`) and write `out['G']` / `out['H']`.",
             "- If n_var varies by benchmark instance/suite, expose n_var as a constructor parameter and document supported values in the class docstring.",
             "- If the benchmark depends on an external package/dataset/suite (e.g., COCO), create a wrapper integration and state the dependency/import clearly.",
             "- Use minimization convention and vectorized evaluation where possible; keep CPU/JAX parity.",
@@ -10251,15 +10243,20 @@ class EmoPyLabMainWindow(QMainWindow):
         self.exp_problem_list.itemSelectionChanged.connect(self._on_exp_prob_selection_changed)
         self.exp_problem_list.currentItemChanged.connect(self._on_exp_problem_current_changed)
 
-        # Default startup selections for experiment module.
+        # Default startup selections for experiment module (NSGA3Local first).
         default_exp_algo_item: QListWidgetItem | None = None
+        default_exp_nsga3_item: QListWidgetItem | None = None
         for i in range(self.exp_algorithm_list.count()):
             item = self.exp_algorithm_list.item(i)
             algo_id = item.data(Qt.ItemDataRole.UserRole)
             spec = self.algorithm_specs.get(algo_id) if isinstance(algo_id, str) else None
-            if spec is not None and core_normalize_backend_token(spec.name) == "nsga3":
+            if spec is not None and core_normalize_backend_token(spec.name) == "nsga3local":
                 default_exp_algo_item = item
                 break
+            if default_exp_nsga3_item is None and spec is not None and core_normalize_backend_token(spec.name) == "nsga3":
+                default_exp_nsga3_item = item
+        if default_exp_algo_item is None:
+            default_exp_algo_item = default_exp_nsga3_item
         if default_exp_algo_item is None and self.exp_algorithm_list.count() > 0:
             default_exp_algo_item = self.exp_algorithm_list.item(0)
         if default_exp_algo_item is not None:
@@ -13714,13 +13711,17 @@ class EmoPyLabMainWindow(QMainWindow):
             key=lambda spec: _natural_lexicographic_key(spec.name),
         )
         target_item: QListWidgetItem | None = None
+        nsga3_fallback_item: QListWidgetItem | None = None
         for spec in sorted_specs:
             item = QListWidgetItem(spec.label)
             item.setData(Qt.ItemDataRole.UserRole, spec.id)
             self.algorithm_list.addItem(item)
-            if target_item is None and core_normalize_backend_token(spec.name) == "nsga3":
+            if target_item is None and core_normalize_backend_token(spec.name) == "nsga3local":
                 target_item = item
-
+            if nsga3_fallback_item is None and core_normalize_backend_token(spec.name) == "nsga3":
+                nsga3_fallback_item = item
+        if target_item is None:
+            target_item = nsga3_fallback_item
         if target_item is None and self.algorithm_list.count() > 0:
             target_item = self.algorithm_list.item(0)
         if target_item is not None:

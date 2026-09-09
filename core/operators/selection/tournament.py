@@ -15,7 +15,7 @@ def binary_tournament_selection(
     n_select: int,
     seed: int = 42,
 ) -> np.ndarray:
-    """Executes vectorized binary tournament based on Pareto rank and crowding distance."""
+    """Rank/crowding tournament for native tensor solvers (ties resolve to i2 by where)."""
     n_pop = len(ranks)
     rng = np.random.default_rng(seed)
 

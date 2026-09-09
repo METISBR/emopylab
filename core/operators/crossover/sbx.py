@@ -19,7 +19,7 @@ def sbx_crossover_tensor(
     prob_var: float = 0.5,
     seed: int = 42,
 ) -> tuple[Any, Any]:
-    """Computes Simulated Binary Crossover (SBX) in a single vectorized GPU tensor operation."""
+    """Vectorized SBX for native tensor solvers (simplified beta form, not a drop-in cross_sbx)."""
     xp = get_array_module()
     N, D = parent1.shape
     is_torch = "torch" in type(parent1).__module__

@@ -7,7 +7,10 @@ if not hasattr(np, "NaN"):
 """EmoPyLab Metrics Package."""
 
 from metrics.indicators import HV, IGD, IGDPlus, GD, GDPlus, Indicator, R2
-from metrics.hv_fast_mc import HV_fast_MC
+from metrics.hv_fast_mc import HV_fast_MC, hv_mc_raw
+from metrics.iqhv import iqhv, IQHV
+from metrics.r2hv_norm import norm_r2_hv, norm_r2_hvc, NormR2HV
+from metrics.ndtree_hv import ndtree_hv, NDTreeHV
 from metrics.evaluator import (
     hypervolume,
     inverted_generational_distance,
@@ -42,8 +45,15 @@ __all__ = [
     "GD",
     "GDPlus",
     "Indicator",
-    "R2",
     "HV_fast_MC",
+    "hv_mc_raw",
+    "iqhv",
+    "IQHV",
+    "norm_r2_hv",
+    "norm_r2_hvc",
+    "NormR2HV",
+    "ndtree_hv",
+    "NDTreeHV",
     "hypervolume",
     "inverted_generational_distance",
     "generational_distance",

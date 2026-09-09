@@ -358,59 +358,11 @@ def _safe_divisor(den: np.ndarray) -> np.ndarray:
 
 
 def _community_hv(pop_obj: np.ndarray, optimum: np.ndarray, context: dict[str, Any]) -> float:
-    if pop_obj.size == 0:
-        return 0.0
-    pop_obj = _as_2d(pop_obj)
-    optimum = _as_2d(optimum)
-    if pop_obj.shape[1] != optimum.shape[1]:
-        return float("nan")
-
-    n, m = pop_obj.shape
-    fmin = np.minimum(np.min(pop_obj, axis=0), np.zeros(m, dtype=float))
-    fmax = np.max(optimum, axis=0)
-    den = _safe_divisor((fmax - fmin) * 1.1)
-    norm_pop = (pop_obj - fmin) / den
-    norm_pop = norm_pop[~np.any(norm_pop > 1.0, axis=1)]
-    ref_point = np.ones(m, dtype=float)
-
-    if norm_pop.size == 0:
-        return 0.0
-
-    norm_pop = _non_dominated_front(norm_pop)
-
-    if m < 4:
-        if _NativeHV is None:
-            return float("nan")
-        try:
-            hv = _NativeHV(ref_point=ref_point)
-            return float(hv(norm_pop))
-        except Exception:  # noqa: BLE001
-            return float("nan")
-
-    # Fast Monte Carlo Hypervolume with Dynamic Sample Pruning (PlatEMO standard)
-    try:
-        from metrics.hv_fast_mc import HV_fast_MC
-        return float(HV_fast_MC(pop_obj, optimum, sample_num=int(context.get("hv_mc_samples", 10_000))))
-    except Exception:
-        pass
-
-    sample_num = max(1, int(context.get("hv_mc_samples", 10_000)))
-    max_value = ref_point
-    min_value = np.min(norm_pop, axis=0)
-    if np.any(max_value < min_value):
-        return 0.0
-
-    chunk_size = max(1, int(context.get("hv_mc_chunk_size", min(sample_num, 100_000))))
-    rng = np.random.default_rng(1)
-    dominated_count = 0
-    remaining = sample_num
-    while remaining > 0:
-        current_size = min(chunk_size, remaining)
-        samples = rng.uniform(low=min_value, high=max_value, size=(current_size, m))
-        dominated = np.any(np.all(norm_pop[:, None, :] <= samples[None, :, :], axis=2), axis=0)
-        dominated_count += int(np.count_nonzero(dominated))
-        remaining -= current_size
-    return float(np.prod(max_value - min_value) * (dominated_count / sample_num))
+    """Unified Hypervolume via HV_fast_MC (PyTorch MPS/CUDA/CPU accelerated)."""
+    from metrics.hv_fast_mc import HV_fast_MC
+    return float(HV_fast_MC(pop_obj, optimum,
+                            sample_num=int(context.get("hv_mc_samples", 10_000)),
+                            context=context))
 
 
 def _subset_task_population(context: dict[str, Any], task_id: int) -> np.ndarray:
@@ -978,48 +930,7 @@ def _metric_R2(front: np.ndarray, context: dict[str, Any]) -> float:
     p_part = context.get("r2_partitions")
     return float(r2_indicator(F, PF=optimum, W=W, n_partitions=p_part))
 
-def _metric_IQHV(front: np.ndarray, context: dict[str, Any]) -> float:
-    """Improved Quick Hypervolume (IQHV) metric wrapper."""
-    from metrics.iqhv import iqhv
-    F = _as_2d(front)
-    if F.size == 0:
-        return float("nan")
-    optimum = _robust_optimum_front(context)
-    ref = context.get("ref_point")
-    if ref is None:
-        ref = np.ones(F.shape[1]) if optimum is not None else np.max(F, axis=0) * 1.1
-    return float(iqhv(F, ref))
-
-
-def _metric_HBDA(front: np.ndarray, context: dict[str, Any]) -> float:
-    """Hypervolume Box Decomposition Algorithm (HBDA) metric wrapper."""
-    from metrics.hbda import hbda
-    F = _as_2d(front)
-    if F.size == 0:
-        return float("nan")
-    optimum = _robust_optimum_front(context)
-    ref = context.get("ref_point")
-    if ref is None:
-        ref = np.ones(F.shape[1]) if optimum is not None else np.max(F, axis=0) * 1.1
-    return float(hbda(F, ref))
-
-
-def _metric_QEHVC(front: np.ndarray, context: dict[str, Any]) -> float:
-    """Quick Extreme Hypervolume Contribution (QEHVC) sum wrapper."""
-    from metrics.qehvc import qehvc
-    F = _as_2d(front)
-    if F.size == 0:
-        return float("nan")
-    optimum = _robust_optimum_front(context)
-    ref = context.get("ref_point")
-    if ref is None:
-        ref = np.ones(F.shape[1]) if optimum is not None else np.max(F, axis=0) * 1.1
-    return float(np.sum(qehvc(F, ref)))
-
 METRICS = {
-    "IQHV": _metric_IQHV,
-    "HBDA": _metric_HBDA,
-    "QEHVC": _metric_QEHVC,
     "CPF": _metric_CPF,
     "DeltaP": _metric_DeltaP,
     "DM": _metric_DM,

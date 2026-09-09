@@ -1,261 +1,258 @@
 # -*- coding: utf-8 -*-
-# emopylab 2026
-"""Tangent-Bundle Pullback Operators for TC-MaOEA.
+"""Canonical empirical-subspace operators for TC-MaOEA.
 
-Implements the mathematical primitives defined in SPEC_TC_MAOEA.md:
-1. SVD objective-space manifold estimation and tangent basis V_{d*}.
-2. Ensemble Evolutionary Jacobian (EEJ) estimation via Ridge linear regression.
-3. Decision-space pullback tangent projector P_T and normal complement P_N.
-4. Dual simplex Karush-Kuhn-Tucker (KKT) Pareto descent direction solver.
-5. Unified Tangent-Bundle Pullback Variation (TBPV) operator.
+Global covariance directions are not local manifold tangents. The fitted EEJ is
+normalized-objective ridge regression, not an exact derivative. Orthogonality
+below refers only to the computed linear subspaces, before boundary repair.
 """
 from __future__ import annotations
 
+from typing import Tuple
 import numpy as np
 
+from core.population import Population
+from util.array_backend import to_numpy
+from util.nds.non_dominated_sorting import NonDominatedSorting
 
-def compute_manifold_tangent_basis(
-    F: np.ndarray,
-    z_min: np.ndarray,
-    z_nad: np.ndarray,
-    tau: float = 0.95,
-) -> tuple[int, np.ndarray, np.ndarray]:
-    """Estimate intrinsic dimension d* and tangent basis V_{d*} via SVD of objective covariance.
 
-    Parameters
-    ----------
-    F : np.ndarray
-        Objective matrix of elite non-dominated solutions, shape (N_elite, M).
-    z_min : np.ndarray
-        Ideal point, shape (M,).
-    z_nad : np.ndarray
-        Nadir point, shape (M,).
-    tau : float, default=0.95
-        Cumulative energy threshold for intrinsic dimensionality detection.
+def population_matrix(pop: Population, key: str) -> np.ndarray:
+    """Transfer individual arrays before stacking (including device tensors)."""
+    return np.asarray([to_numpy(row) for row in pop.get(key, to_numpy=False)], dtype=float)
 
-    Returns
-    -------
-    d_star : int
-        Estimated intrinsic dimension, guaranteed 1 <= d_star <= M - 1.
-    V_d : np.ndarray
-        Orthonormal tangent bundle basis, shape (M, d_star).
-    sigma : np.ndarray
-        Ordered singular values of the covariance matrix, shape (M,).
+
+def _matrix(value, name: str) -> np.ndarray:
+    array = np.asarray(to_numpy(value), dtype=float)
+    if array.ndim != 2 or array.shape[1] == 0 or not np.all(np.isfinite(array)):
+        raise ValueError(f"{name} must be a finite matrix with nonzero column count")
+    return array
+
+
+def project_simplex(v: np.ndarray, z: float = 1.0) -> np.ndarray:
+    """Euclidean projection onto {w >= 0: sum(w) = z} (Duchi et al.)."""
+    v = np.asarray(to_numpy(v), dtype=float)
+    if v.ndim != 1 or v.size == 0 or not np.all(np.isfinite(v)):
+        raise ValueError("v must be a nonempty finite vector")
+    if not np.isfinite(z) or z <= 0:
+        raise ValueError("z must be finite and positive")
+    # Translation invariance avoids cancellation for a large common offset.
+    shifted = v - np.max(v)
+    u = np.sort(shifted)[::-1]
+    cssv = np.cumsum(u) - z
+    rho = np.flatnonzero(u > cssv / np.arange(1, len(v) + 1))[-1]
+    return np.maximum(shifted - cssv[rho] / (rho + 1), 0.0)
+
+
+def certify_empirical_descent(J: np.ndarray, direction: np.ndarray) -> np.ndarray:
+    """Return direction only if every fitted objective strictly decreases.
+
+    A scale-aware roundoff margin excludes unresolved signs. Zero is the safe
+    no-step result, not a certificate of stationarity of the true objectives.
+    Projection or boundary reflection requires a new certificate; neither
+    inherits the certificate of the unprojected direction.
     """
-    F_arr = np.asarray(F, dtype=float)
-    N, M = F_arr.shape
+    J = _matrix(J, "J")
+    d = np.asarray(to_numpy(direction), dtype=float)
+    if d.shape != (J.shape[1],) or not np.all(np.isfinite(d)):
+        raise ValueError("direction must be finite and match J columns")
+    norm_d = np.linalg.norm(d)
+    margin = 32 * np.finfo(float).eps * np.linalg.norm(J, axis=1) * norm_d
+    if norm_d == 0 or not np.all(J @ d < -margin):
+        return np.zeros_like(d)
+    return d.copy()
+
+
+def solve_kkt_simplex_qp(
+    J: np.ndarray,
+    max_iter: int = 1000,
+    tol: float = 1e-8,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Approximately minimize ||J.T lambda||^2 over the unit simplex.
+
+    Projected gradient uses a simplex dual-gap stopping test on the scaled
+    Gram matrix. Iteration exhaustion does not establish optimality. Returned
+    weights remain feasible; the returned direction is -J.T lambda only when
+    it independently passes strict empirical common-descent certification,
+    otherwise zero. No true-function or nonlinear finite-step guarantee follows.
+    """
+    J = _matrix(J, "J")
+    M, D = J.shape
+    if M == 0 or max_iter < 1 or not np.isfinite(tol) or tol <= 0:
+        raise ValueError("J needs rows and max_iter/tol must be positive")
+    lam = np.full(M, 1.0 / M)
+    scale = float(np.max(np.abs(J)))
+    if scale == 0:
+        return lam, np.zeros(D)
+    A = J / scale
+    G = A @ A.T
+    lipschitz = float(np.linalg.eigvalsh(G)[-1])
+    for _ in range(max_iter):
+        grad = G @ lam
+        gap = float(lam @ grad - np.min(grad))
+        if gap <= tol * max(1.0, lipschitz):
+            break
+        lam = project_simplex(lam - grad / lipschitz)
+    return lam, certify_empirical_descent(J, -J.T @ lam)
+
+
+def svd_manifold_decomposition(
+    F_norm: np.ndarray,
+    tau_var: float = 1e-3,
+    tau_gap: float = 50.0,
+) -> Tuple[int, np.ndarray, np.ndarray]:
+    """Return retained covariance dimension r, basis, and covariance spectrum.
+
+    r is empirical, not the PF or PS dimension. Insufficient samples or zero
+    covariance return r=0 and an empty basis, never artificial unit eigenvalues.
+    """
+    F_norm = _matrix(F_norm, "F_norm")
+    N, M = F_norm.shape
+    if not (0 < tau_var <= 1) or not np.isfinite(tau_gap) or tau_gap <= 1:
+        raise ValueError("Require 0 < tau_var <= 1 and finite tau_gap > 1")
     if N < 2 or M < 2:
-        d_fallback = max(1, M - 1)
-        return d_fallback, np.eye(M, d_fallback, dtype=float), np.ones(M, dtype=float)
-
-    span = np.maximum(z_nad - z_min, 1e-12)
-    Fn = (F_arr - z_min[None, :]) / span[None, :]
-    Fn_centered = Fn - np.mean(Fn, axis=0, keepdims=True)
-
-    cov = (Fn_centered.T @ Fn_centered) / max(N - 1, 1)
-    try:
-        _, sigma, Vt = np.linalg.svd(cov, full_matrices=False)
-        V = Vt.T
-    except np.linalg.LinAlgError:
-        d_fallback = max(1, M - 1)
-        return d_fallback, np.eye(M, d_fallback, dtype=float), np.ones(M, dtype=float)
-
-    total_energy = float(np.sum(sigma**2))
-    if total_energy <= 1e-16:
-        d_fallback = max(1, M - 1)
-        return d_fallback, np.eye(M, d_fallback, dtype=float), np.ones(M, dtype=float)
-
-    # Dual-Criteria Intrinsic Dimension Detection (Spectral Gap + Relative Variance Floor)
-    rel_sig = sigma / max(float(sigma[0]), 1e-12)
-    significant = np.where(rel_sig >= 1e-3)[0]
-    k_sig = int(significant[-1]) + 1 if len(significant) > 0 else 1
-
-    gaps = np.array([sigma[k] / max(float(sigma[k + 1]), 1e-30) for k in range(M - 1)])
-    gap_candidates = np.where(gaps >= 50.0)[0]
-    if len(gap_candidates) > 0:
-        k_gap = int(gap_candidates[0]) + 1
-    else:
-        cum_energy = np.cumsum(sigma**2) / total_energy
-        indices = np.where(cum_energy >= tau)[0]
-        k_gap = int(indices[0]) + 1 if len(indices) > 0 else M - 1
-
-    d_star = int(min(k_sig, k_gap))
-    # Bound d_star strictly to a sub-manifold
-    d_star = int(max(1, min(d_star, M - 1)))
-    V_d = V[:, :d_star]
-    return d_star, V_d, sigma
+        return 0, np.empty((M, 0)), np.zeros(M)
+    centered = F_norm - np.mean(F_norm, axis=0, keepdims=True)
+    covariance = centered.T @ centered / (N - 1)
+    _, sigmas, Vt = np.linalg.svd(covariance, full_matrices=False)
+    if sigmas[0] == 0:
+        return 0, np.empty((M, 0)), sigmas
+    k_floor = int(np.count_nonzero(sigmas / sigmas[0] >= tau_var))
+    gaps = sigmas[:-1] / np.maximum(sigmas[1:], np.finfo(float).tiny)
+    candidates = np.flatnonzero(gaps >= tau_gap)
+    k_gap = int(candidates[0]) + 1 if candidates.size else M - 1
+    r = min(k_floor, k_gap, M - 1, N - 1)
+    return r, Vt[:r].T, sigmas
 
 
-def compute_eej_jacobian(
-    X: np.ndarray,
-    F: np.ndarray,
-    reg: float = 1e-6,
+def compute_eej(
+    X_elite: np.ndarray,
+    F_norm: np.ndarray,
+    reg_scale: float = 1e-6,
 ) -> np.ndarray:
-    """Estimate empirical multi-objective Jacobian J in R^{M x D} via regularized Ridge regression.
+    """Fit centered normalized-objective ridge regression using a linear solve.
 
-    Parameters
-    ----------
-    X : np.ndarray
-        Decision coordinates of elite population, shape (N, D).
-    F : np.ndarray
-        Objective values of elite population, shape (N, M).
-    reg : float, default=1e-6
-        Ridge Tikhonov regularization scale factor.
-
-    Returns
-    -------
-    J : np.ndarray
-        Estimated Jacobian matrix, shape (M, D).
+    rho = reg_scale * trace(Xbar.T Xbar) / D. With zero decision spread
+    or fewer than two samples the minimum-norm empirical estimate is zero.
     """
-    X_arr = np.asarray(X, dtype=float)
-    F_arr = np.asarray(F, dtype=float)
-    N, D = X_arr.shape
-    M = F_arr.shape[1]
-
+    X_elite = _matrix(X_elite, "X_elite")
+    F_norm = _matrix(F_norm, "F_norm")
+    N, D = X_elite.shape
+    M = F_norm.shape[1]
+    if len(F_norm) != N or not np.isfinite(reg_scale) or reg_scale <= 0:
+        raise ValueError("Aligned samples and positive finite reg_scale required")
     if N < 2:
-        return np.zeros((M, D), dtype=float)
-
-    dX = X_arr - np.mean(X_arr, axis=0, keepdims=True)
-    dF = F_arr - np.mean(F_arr, axis=0, keepdims=True)
-
-    C_X = dX.T @ dX
-    diag_mean = float(np.trace(C_X)) / max(D, 1)
-    rho = max(reg * diag_mean, 1e-10)
-
-    reg_mat = C_X + rho * np.eye(D, dtype=float)
+        return np.zeros((M, D))
+    X_bar = X_elite - np.mean(X_elite, axis=0, keepdims=True)
+    F_bar = F_norm - np.mean(F_norm, axis=0, keepdims=True)
+    gram = X_bar.T @ X_bar
+    trace = float(np.trace(gram))
+    if trace == 0:
+        return np.zeros((M, D))
+    rho = max(reg_scale * trace / D, np.finfo(float).tiny)
+    system = gram + rho * np.eye(D)
+    rhs = X_bar.T @ F_bar
     try:
-        JT = np.linalg.solve(reg_mat, dX.T @ dF)
-        J = JT.T
+        return np.linalg.solve(system, rhs).T
     except np.linalg.LinAlgError:
-        JT, _, _, _ = np.linalg.lstsq(reg_mat, dX.T @ dF, rcond=None)
-        J = JT.T
-
-    return J
+        return np.linalg.lstsq(system, rhs, rcond=None)[0].T
 
 
 def build_pullback_projectors(
     J: np.ndarray,
-    V_d: np.ndarray,
+    V_dstar: np.ndarray,
     gamma: float = 1e-8,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Construct orthogonal tangent projector P_T and normal projector P_N in R^{D x D}.
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Orthogonal projectors onto range(B) and its complement.
 
-    Uses thin QR decomposition on the pullback basis B_T = J^dagger V_{d*}
-    to guarantee exact linear algebraic idempotence (P_T^2 = P_T), symmetry (P_T = P_T^T),
-    and orthogonality (P_T P_N = 0) to machine precision.
-
-    Parameters
-    ----------
-    J : np.ndarray
-        Jacobian matrix, shape (M, D).
-    V_d : np.ndarray
-        Objective tangent bundle orthonormal basis, shape (M, d_star).
-    gamma : float, default=1e-8
-        Regularization parameter for Moore-Penrose pseudo-inverse.
-
-    Returns
-    -------
-    P_T : np.ndarray
-        Exact orthogonal tangent projector, shape (D, D), rank d_star.
-    P_N : np.ndarray
-        Exact orthogonal normal projector, shape (D, D), rank D - d_star.
+    B = J.T solve(J J.T + gamma I, V). This is a damped right inverse,
+    not Moore-Penrose inversion. SVD retains singular values above
+    eps * max(B.shape) * s_max, so rank q may be smaller than r.
     """
-    J_arr = np.asarray(J, dtype=float)
-    V_arr = np.asarray(V_d, dtype=float)
-    M, D = J_arr.shape
-    d_star = V_arr.shape[1] if V_arr.ndim == 2 else 1
-
-    I_D = np.eye(D, dtype=float)
-    if d_star == 0 or np.all(np.abs(J_arr) < 1e-14):
-        return np.zeros((D, D), dtype=float), I_D
-
-    # J^dagger = J^T (J J^T + gamma I_M)^{-1} in R^{D x M}
-    JJT = J_arr @ J_arr.T
-    inv_JJT = np.linalg.pinv(JJT + gamma * np.eye(M, dtype=float))
-    J_pinv = J_arr.T @ inv_JJT  # (D, M)
-
-    # Pullback tangent basis in decision space: B_T = J^dagger V_d in R^{D x d*}
-    B_T = J_pinv @ V_arr
-
-    # Thin QR factorization yields orthonormal column basis Q_T in R^{D x d*}
-    Q_T, _ = np.linalg.qr(B_T)
-
-    # Exact orthogonal projection matrix onto col(B_T)
-    P_T = Q_T @ Q_T.T
-    P_N = I_D - P_T
-
-    return P_T, P_N
+    J = _matrix(J, "J")
+    V = np.asarray(to_numpy(V_dstar), dtype=float)
+    M, D = J.shape
+    if V.ndim != 2 or V.shape[0] != M or not np.all(np.isfinite(V)):
+        raise ValueError("V must be finite with one row per objective")
+    if not np.isfinite(gamma) or gamma <= 0:
+        raise ValueError("gamma must be finite and positive")
+    if V.shape[1] == 0:
+        return np.zeros((D, D)), np.eye(D)
+    B = J.T @ np.linalg.solve(J @ J.T + gamma * np.eye(M), V)
+    U, singular, _ = np.linalg.svd(B, full_matrices=False)
+    cutoff = np.finfo(float).eps * max(B.shape) * singular[0]
+    Q = U[:, singular > cutoff]
+    P_T = Q @ Q.T
+    return P_T, np.eye(D) - P_T
 
 
-def solve_kkt_descent_simplex(
-    J: np.ndarray,
-    max_iter: int = 25,
-    tol: float = 1e-8,
-) -> np.ndarray:
-    """Solve the dual Karush-Kuhn-Tucker quadratic program on the unit simplex.
+def reflective_clamp(y: np.ndarray, xl: np.ndarray, xu: np.ndarray) -> np.ndarray:
+    """Repeated reflection into finite box bounds, including fixed coordinates."""
+    y = np.asarray(to_numpy(y), dtype=float)
+    xl = np.asarray(to_numpy(xl), dtype=float)
+    xu = np.asarray(to_numpy(xu), dtype=float)
+    if y.ndim not in (1, 2) or not all(np.all(np.isfinite(a)) for a in (y, xl, xu)):
+        raise ValueError("Finite vectors or batches and finite bounds required")
+    lo, hi = np.broadcast_arrays(xl, xu)
+    if lo.shape != (y.shape[-1],) or np.any(hi < lo):
+        raise ValueError("Bounds must match the decision dimension and xl <= xu")
+    width = hi - lo
+    safe_width = np.where(width > 0, width, 1.0)
+    phase = np.remainder(y - lo, 2.0 * safe_width)
+    reflected = lo + safe_width - np.abs(phase - safe_width)
+    return np.where(width > 0, reflected, lo)
 
-    min_{lambda in Delta_{M-1}} || J^T lambda ||_2^2
-    s.t. sum_m lambda_m = 1, lambda_m >= 0
 
-    Returns the Pareto descent direction d_KKT = -J^T lambda* in R^D.
+def apd_environmental_selection(
+    pool: Population,
+    W_adapt: np.ndarray,
+    z_min: np.ndarray,
+    z_max: np.ndarray,
+    n_survive: int,
+    t_ratio: float,
+    alpha: float = 2.0,
+) -> Population:
+    """Nondominated fronts followed by occupancy-aware APD critical-front filling.
+
+    Complete fronts have priority. In the split front, repeatedly choose a
+    least-occupied available niche, then its minimum-APD candidate. Ties use
+    APD then index, making selection reproducible without global RNG state.
     """
-    J_arr = np.asarray(J, dtype=float)
-    M, D = J_arr.shape
-    if M == 1:
-        return -J_arr[0].copy()
-
-    H = J_arr @ J_arr.T  # (M, M)
-    lam = np.full(M, 1.0 / M, dtype=float)
-
-    # Safe Lipschitz step
-    L = float(np.linalg.norm(H, ord=np.inf))
-    step = 1.0 / max(L, 1e-12)
-
-    for _ in range(max(max_iter, 1)):
-        grad = H @ lam
-        # Projected gradient onto unit simplex
-        v = lam - step * grad
-        lam_next = _project_simplex(v)
-        if float(np.linalg.norm(lam_next - lam)) <= tol:
-            lam = lam_next
-            break
-        lam = lam_next
-
-    d_kkt = -J_arr.T @ lam
-    return d_kkt
-
-
-def _project_simplex(v: np.ndarray) -> np.ndarray:
-    """Project vector v onto the probability simplex sum(x) = 1, x >= 0 (Duchi et al., 2008)."""
-    n = len(v)
-    u = np.sort(v)[::-1]
-    cssv = np.cumsum(u) - 1.0
-    ind = np.arange(1, n + 1, dtype=float)
-    cond = u - cssv / ind > 0.0
-    rho = int(np.where(cond)[0][-1])
-    theta = cssv[rho] / float(rho + 1)
-    return np.maximum(v - theta, 0.0)
-
-
-def tangent_pullback_variation(
-    x_base: np.ndarray,
-    delta_de: np.ndarray,
-    d_kkt: np.ndarray,
-    P_T: np.ndarray,
-    P_N: np.ndarray,
-    eta_T: float,
-    eta_N: float,
-    xl: np.ndarray,
-    xu: np.ndarray,
-) -> np.ndarray:
-    """Compute unified Tangent-Bundle Pullback Variation with reflective boundary enforcement."""
-    dx = float(eta_T) * (P_T @ delta_de) + float(eta_N) * (P_N @ d_kkt)
-    y = x_base + dx
-
-    # Reflective clamping
-    below = y < xl
-    above = y > xu
-    y[below] = 2.0 * xl[below] - y[below]
-    y[above] = 2.0 * xu[above] - y[above]
-    # Hard safety fallback for extreme overshoots
-    return np.clip(y, xl, xu)
+    if n_survive < 0:
+        raise ValueError("n_survive must be nonnegative")
+    if len(pool) <= n_survive:
+        return pool
+    if n_survive == 0:
+        return pool[:0]
+    F = _matrix(population_matrix(pool, "F"), "F")
+    W = _matrix(W_adapt, "W_adapt")
+    if len(W) == 0 or W.shape[1] != F.shape[1]:
+        raise ValueError("At least one matching reference direction required")
+    norms_w = np.linalg.norm(W, axis=1)
+    if np.any(norms_w == 0):
+        raise ValueError("Reference directions must be nonzero")
+    W = W / norms_w[:, None]
+    span = np.maximum(np.asarray(z_max) - np.asarray(z_min), 1e-12)
+    F_trans = (F - z_min) / span
+    norm_f = np.linalg.norm(F_trans, axis=1)
+    theta = np.arccos(np.clip(F_trans @ W.T / np.maximum(norm_f[:, None], 1e-12), -1, 1))
+    assoc = np.argmin(theta, axis=1)
+    angles = np.arccos(np.clip(W @ W.T, -1, 1))
+    np.fill_diagonal(angles, np.inf)
+    gamma = np.maximum(np.min(angles, axis=1), 1e-6) if len(W) > 1 else np.array([np.pi])
+    scores = norm_f * (1 + F.shape[1] * np.clip(t_ratio, 0, 1) ** alpha * theta[np.arange(len(F)), assoc] / gamma[assoc])
+    survivors = []
+    for front in NonDominatedSorting().do(F):
+        if len(survivors) + len(front) <= n_survive:
+            survivors.extend(front)
+            continue
+        counts = np.bincount(assoc[survivors], minlength=len(W))
+        queues = {}
+        for idx in sorted(front, key=lambda i: (scores[i], i)):
+            queues.setdefault(int(assoc[idx]), []).append(int(idx))
+        while len(survivors) < n_survive:
+            niche = min(queues, key=lambda k: (counts[k], scores[queues[k][0]], k))
+            survivors.append(queues[niche].pop(0))
+            counts[niche] += 1
+            if not queues[niche]:
+                del queues[niche]
+        break
+    return pool[np.asarray(survivors, dtype=int)]
