@@ -331,7 +331,6 @@ class NSGA3Local(Algorithm):
     """Canonical NSGA-III port with accelerator-backed survival kernels."""
     ALGO_FLAGS = {"multi", "many", "real", "integer", "binary", "permutation", "label", "constrained"}
     OBJECTIVE_SCOPE = "many"
-
     def __init__(self, pop_size: int = 100, ref_dirs=None, sampling=None,
                  seed=None, use_gpu: bool = False, array_backend: str = "auto", **kwargs: Any) -> None:
         super().__init__(seed=seed, use_gpu=use_gpu, array_backend=array_backend, **kwargs)
@@ -339,7 +338,7 @@ class NSGA3Local(Algorithm):
         self.ref_dirs = None if ref_dirs is None else np.asarray(ref_dirs, dtype=float)
         self.sampling = sampling
         self.norm: HyperplaneNormalization | None = None
-
+        self.zmin: np.ndarray | None = None
     def _setup(self, problem, **kwargs):
         if self.ref_dirs is None or self.ref_dirs.ndim != 2 or self.ref_dirs.shape[1] != int(problem.n_obj):
             self.ref_dirs, n_eff = UniformPoint(self.pop_size, int(problem.n_obj))
@@ -357,6 +356,7 @@ class NSGA3Local(Algorithm):
         if len(self.pop) and self.norm is not None:
             F = _population_objectives(self.pop)
             self.norm.update(F, _fronts(F, self.array_backend_effective)[0])
+            self.zmin = np.asarray(self.norm.ideal_point, dtype=float).copy()
         self._set_optimum()
 
     def _infill(self):
@@ -385,6 +385,7 @@ class NSGA3Local(Algorithm):
             self.norm.ideal_point if self.norm is not None else np.min(_population_objectives(merged), axis=0),
             rng_from_algo(self), norm=self.norm, backend=self.array_backend_effective,
         )
+        self.zmin = np.asarray(self.norm.ideal_point, dtype=float).copy() if self.norm is not None else None
         self._set_optimum()
 
     def _set_optimum(self):
