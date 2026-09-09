@@ -33,6 +33,11 @@ If you utilize **EmoPyLab** in your scientific research, algorithms, or benchmar
 ---
 
 ## Changelog & Release Notes
+### [v1.0.4] — 2026-09-09
+* **Hypervolume Suite**: new `metrics/iqhv.py` (exact QHV-II, Jaszkiewicz COR'18 — now the default checked metric in the GUI), `metrics/r2hv_norm.py` (normalized R2-HV, Wu/Shang/Ishibuchi SSCI'23), `metrics/ndtree_hv.py` (ND-Tree distance-based estimation, Jaszkiewicz/Zielniewicz TEVC'24).
+* **Canonical raw QMC Monte Carlo**: `HV_fast_MC` defaults to direct-space scrambled-Sobol (`mode="raw"`, no PlatEMO rescaling), matching exact IQHV within 0.02–0.04% on MaF6 m=8/10 (NSGA3Local, pop=10, 25k evals); legacy PlatEMO scale kept via `mode="platemo"`.
+* **Apple Silicon / GPU fast paths**: torch MPS/CUDA/CPU float32 tiled broadcast + NumPy/MLX fallback, warmup + device-sync benchmark protocol; `tests/test_metrics_acceleration.py` 5 passed / 1 skipped.
+
 ### [v1.0.3] — 2026-09-07
 * **Hardware Tensor Engine Hardening**: Full native acceleration across Apple Silicon (Metal/MPS, MLX with `@mx.compile`), NVIDIA CUDA (LNCC Santos Dumont Supercomputer), and AMD ROCm.
 * **On-Device RNG & Vectorized Operators**: Replaced CPU host random generation with on-device tensor PRNGs in SBX and Polynomial Mutation, eliminating host-device synchronization ping-pong.
@@ -353,7 +358,7 @@ If you utilize **EmoPyLab** in your scientific research, algorithms, or benchmar
   title   = {{EmoPyLab: A High-Throughput Benchmarking Ecosystem and Open-Source Decision Platform for Evolutionary Many-Objective Optimization}},
   month   = {9},
   year    = {2026},
-  version = {1.0.3},
+  version = {1.0.4},
   url     = {https://github.com/METISBR/emopylab},
   license = {MIT}
 }

@@ -6462,7 +6462,7 @@ class EmoPyLabMainWindow(QMainWindow):
         status_bar.addWidget(hw_label)
 
         # Version & Research Group Attribution
-        ver_label = QLabel('<span style="color: #64748B;">EmoPyLab v1.0.3 • </span>')
+        ver_label = QLabel('<span style="color: #64748B;">EmoPyLab v1.0.4 • </span>')
         status_bar.addPermanentWidget(ver_label)
 
         metis_link = QLabel(
