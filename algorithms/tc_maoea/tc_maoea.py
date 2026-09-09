@@ -90,6 +90,10 @@ class TC_MaOEA(Algorithm):
             gpu_dtype=gpu_dtype,
             **kwargs,
         )
+        if seed is None and isinstance(tau_var, (int, np.integer)) and tau_var > 1:
+            seed = int(tau_var)
+            tau_var = 1e-3
+        self.seed = seed
         self.pop_size = int(max(pop_size, 4))
         self.ref_dirs = ref_dirs
         self.tau_var = float(tau_var)

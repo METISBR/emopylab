@@ -9,24 +9,7 @@ import numpy as np
 
 from core.termination import Termination, get_termination
 from util.display.multi import Display, MultiObjectiveDisplay, SingleObjectiveDisplay
-
-
-class Result:
-    """Result object returned by minimize()."""
-
-    def __init__(self) -> None:
-        self.algorithm: Any = None
-        self.problem: Any = None
-        self.pop: Any = None
-        self.opt: Any = None
-        self.X: np.ndarray = np.empty((0, 0))
-        self.F: np.ndarray = np.empty((0, 0))
-        self.G: np.ndarray | None = None
-        self.H: np.ndarray | None = None
-        self.CV: np.ndarray | None = None
-        self.feasible: np.ndarray | None = None
-        self.exec_time: float = 0.0
-        self.history: list[Any] | None = None
+from core.result import Result
 
 
 def minimize(

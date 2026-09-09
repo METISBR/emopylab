@@ -19,6 +19,8 @@ def default_random_state(func: Callable) -> Callable:
         seed = kwargs.get("seed", None)
         if seed is None and len(args) > 0 and hasattr(args[0], "seed"):
             seed = getattr(args[0], "seed")
+        if "random_state" not in kwargs or kwargs["random_state"] is None:
+            kwargs["random_state"] = np.random.default_rng(seed)
         return func(*args, **kwargs)
     return wrapper
 

@@ -156,8 +156,17 @@ class RVEA(Algorithm):
 
     def _setup(self, problem: Any, **kwargs: Any) -> None:
         if self.ref_dirs is None:
-            n_obj = getattr(problem, "n_obj", 3)
-            self.ref_dirs = get_reference_directions("das-dennis", n_obj=n_obj, n_partitions=12)
+            n_obj = int(getattr(problem, "n_obj", 3))
+            target_pop = int(self.pop_size if self.pop_size is not None else 100)
+            try:
+                from operators.utility_functions.UniformPoint import UniformPoint
+                generated_ref_dirs, n_eff = UniformPoint(target_pop, n_obj)
+                self.ref_dirs = np.asarray(generated_ref_dirs, dtype=float)
+                if self.pop_size is None:
+                    self.pop_size = int(n_eff)
+            except Exception:
+                p = 12 if n_obj <= 3 else (4 if n_obj <= 5 else 2)
+                self.ref_dirs = get_reference_directions("das-dennis", n_obj=n_obj, n_partitions=p)
         else:
             self.ref_dirs = np.asarray(self.ref_dirs, dtype=float)
 

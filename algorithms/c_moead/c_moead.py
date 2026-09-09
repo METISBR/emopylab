@@ -32,15 +32,20 @@ ALGORITHM_FLAGS = {"CMOEAD": {"multi", "many", "constrained", "real", "integer",
 
 
 class CMOEAD(Algorithm):
-    def __init__(self, pop_size=100, delta=0.9, sampling=None, **kwargs):
+    def __init__(self, pop_size=100, delta=0.9, sampling=None, ref_dirs=None, **kwargs):
         super().__init__(**kwargs)
         self.pop_size = int(pop_size)
         self.delta = float(delta)
         self.sampling = sampling
+        self.ref_dirs = ref_dirs
 
     def _initialize_infill(self):
-        self.W, n = weight_vectors(self.pop_size, self.problem.n_obj)
-        self.pop_size = n
+        if self.ref_dirs is not None:
+            self.W = np.asarray(self.ref_dirs, dtype=float)
+            self.pop_size = len(self.W)
+        else:
+            self.W, n = weight_vectors(self.pop_size, self.problem.n_obj)
+            self.pop_size = n
         self.T = int(np.ceil(self.pop_size / 10))
         self.nr = max(1, int(np.ceil(self.pop_size / 100)))
         self.B = neighbors(self.W, self.T)
