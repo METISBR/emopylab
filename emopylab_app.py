@@ -256,7 +256,7 @@ MANY_OBJECTIVE_ALGO_HINTS = {
     "agemoeaii",
 }
 
-LOCAL_ALGORITHM_EXCLUDED_ROOTS = {"base", "moo", "soo", "__pycache__", "nsga3_local"}
+LOCAL_ALGORITHM_EXCLUDED_ROOTS = {"base", "moo", "soo", "__pycache__"}
 LOCAL_ALGORITHM_EXCLUDED_FILES = {"hyperparameters.py", "ssw_rdpa copy.py"}
 OPTIONAL_BUILTIN_ALGORITHM_MODULE_HINTS = {"optuna"}
 EXCLUDED_BUILTIN_ALGORITHM_MODULE_HINTS = {"mopso_cd"}
