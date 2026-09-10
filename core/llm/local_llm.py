@@ -315,18 +315,21 @@ class LocalLLMClient:
                  max_tokens: int = DEFAULT_MAX_TOKENS,
                  auto_start: bool = False,
                  use_inprocess_if_available: bool = True,
+                 force_inprocess: bool = False,
+                 model_path: Optional[str | Path] = None,
                  gguf_repo: str = DEFAULT_GGUF_REPO,
                  gguf_filename: str = DEFAULT_GGUF_FILE_PATTERN,
                  gguf_n_ctx: int = 512,
                  gguf_n_threads: int = 8):
-        self.backend_info = auto_backend_status()
+        self.force_inprocess = bool(force_inprocess)
+        self.backend_info = {} if self.force_inprocess else auto_backend_status()
         env_url = (
             os.environ.get("EMOPYLAB_LLM_URL")
             or os.environ.get("EMOPYLAB_LMSTUDIO_URL")
         )
         target_url = str(base_url or env_url or self.backend_info.get("preferred_endpoint") or DEFAULT_BASE_URL)
         from .splash import probe_openai_models
-        if not probe_openai_models(target_url, timeout=0.2).ready and self.backend_info.get("preferred_endpoint"):
+        if not self.force_inprocess and not probe_openai_models(target_url, timeout=0.2).ready and self.backend_info.get("preferred_endpoint"):
             target_url = str(self.backend_info["preferred_endpoint"])
         if target_url.endswith("/chat/completions"):
             target_url = target_url[:-len("/chat/completions")]
@@ -344,20 +347,40 @@ class LocalLLMClient:
             "model": self.model,
             "backend": "unresolved",
         }
-        # GGUF in-process settings (used only on non-Apple-Silicon hosts)
         self.gguf_repo = gguf_repo
         self.gguf_filename = gguf_filename
         self.gguf_n_ctx = int(gguf_n_ctx)
         self.gguf_n_threads = int(gguf_n_threads)
         self._inprocess: Any = None  # type: ignore[var-annotated]
-        # Priority 1: Check if an HTTP server (llama-server or mlx-lm) is already reachable on self.base_url
+
+        local_models_dir = Path(__file__).resolve().parents[2] / "models"
+        local_gguf_path = Path(model_path) if model_path is not None else (
+            local_models_dir / "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+        )
+        if self.force_inprocess:
+            if not llama_cpp_python_available():
+                raise RuntimeError("force_inprocess requires llama-cpp-python")
+            if not local_gguf_path.is_file():
+                raise FileNotFoundError(f"Local GGUF model not found: {local_gguf_path}")
+            with local_gguf_path.open("rb") as model_file:
+                if model_file.read(4) != b"GGUF":
+                    raise ValueError(f"Invalid GGUF magic header: {local_gguf_path}")
+            from llama_cpp import Llama  # type: ignore[import-not-found]
+            self._inprocess = Llama(
+                model_path=str(local_gguf_path),
+                n_ctx=self.gguf_n_ctx,
+                n_threads=self.gguf_n_threads,
+                n_gpu_layers=-1,
+                verbose=False,
+            )
+            self._resolved_model = str(local_gguf_path)
+            return
+
+        # Prefer a reachable HTTP server in the normal auto-detected mode.
         probe = probe_openai_models(self.base_url, timeout=0.3)
         if not probe.ready and use_inprocess_if_available and llama_cpp_python_available():
             try:
                 from llama_cpp import Llama  # type: ignore[import-not-found]
-                # Priority 1A: Strictly use the pre-downloaded local GGUF model in models/ directory
-                local_models_dir = Path(__file__).resolve().parents[2] / "models"
-                local_gguf_path = local_models_dir / "qwen2.5-0.5b-instruct-q4_k_m.gguf"
                 if local_gguf_path.exists():
                     self._inprocess = Llama(
                         model_path=str(local_gguf_path),
@@ -367,8 +390,6 @@ class LocalLLMClient:
                         verbose=False,
                     )
                     logger.info("LocalLLMClient: loaded strictly from %s", local_gguf_path)
-                else:
-                    logger.warning("LocalLLMClient: local model %s not found in models/", local_gguf_path)
             except Exception as exc:
                 logger.warning(
                     "Failed to load in-process GGUF model (%s); "
@@ -376,13 +397,8 @@ class LocalLLMClient:
                     exc,
                 )
                 self._inprocess = None
-        # Optionally boot the local mlx-lm server (Apple Silicon only)
         if auto_start and is_apple_silicon():
-            ensure_mlx_server_running(self.base_url, self.model,
-                                       auto_start=True)
-        # Resolve a concrete model id from /models when using HTTP.
-        # Optimization: when the in-process backend is active, no HTTP
-        # resolution is needed (and we have no /models endpoint to query).
+            ensure_mlx_server_running(self.base_url, self.model, auto_start=True)
         if self._inprocess is None:
             self._resolved_model = self._resolve_model_id()
         else:
