@@ -1,4 +1,4 @@
-"""EmoPyLab Top-Level optimize module (zero-pymoo standalone)."""
+"""EmoPyLab Top-Level optimize module."""
 
 from __future__ import annotations
 

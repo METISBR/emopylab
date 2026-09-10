@@ -223,7 +223,7 @@ class LLMFormulationService:
     @staticmethod
     def _normalize_problem_init_keywords(code: str) -> str:
         text = str(code or "")
-        # Older/generated snippets may use n_constr; pymoo current API expects n_ieq_constr.
+        # Older/generated snippets may use n_constr; EmoPyLab current API expects n_ieq_constr.
         text = re.sub(r"(?<![A-Za-z0-9_])n_constr\s*=", "n_ieq_constr=", text)
         return text
 
@@ -311,17 +311,16 @@ class LLMFormulationService:
         )
 
     @staticmethod
-    def _looks_like_native_pymoo_problem_wrapper(code: str) -> bool:
+    def _looks_like_native_problem_wrapper(code: str) -> bool:
         text = str(code or "")
         tl = text.lower()
         if not tl.strip():
             return False
-        # Detect thin wrappers around local canonical benchmark modules or pymoo benchmark modules.
+        # Detect thin wrappers around local canonical benchmark modules.
         wrapper_import_hints = (
             "from problems.multi.zdt import",
             "from problems.many.dtlz import",
             "from problems.many.zcat import",
-            "from pymoo.problems",
         )
         if any(hint in tl for hint in wrapper_import_hints):
             if "_canonicalproblem" in tl or re.search(r"class\s+\w+\s*\(\s*\w+\s*\)\s*:", text):
@@ -693,7 +692,7 @@ class LLMFormulationService:
             "write code",
             "python module",
             "plugin",
-            "pymoo problem",
+            "optimization problem",
             "problem subclass",
             "create_metric",
             "cpu and jax",
@@ -1086,7 +1085,7 @@ class LLMFormulationService:
     ) -> dict[str, Any]:
         n_var_default, n_obj_default = cls._normalize_problem_ui_defaults(n_var, n_obj)
         system_prompt = (
-            "Act as a senior software engineer specialized in PlatEMO and optimization frameworks. "
+            "Act as a senior software engineer specialized in evolutionary optimization frameworks. "
             "Produce a compact specification JSON for code generation. Return strict JSON only."
         )
         user_prompt = (
@@ -1359,7 +1358,7 @@ class LLMFormulationService:
             cpu_symbol = safe_base
             jax_symbol = f"{safe_base}_JAX"
             system_prompt = (
-                "Act as a senior software engineer specialized in PlatEMO and optimization frameworks. "
+                "Act as a senior software engineer specialized in evolutionary optimization frameworks. "
                 "You write safe, vectorized Python code for EmoPyLab Problem subclasses. "
                 "Use EmoPyLab's current Problem/constraint APIs (`out['F']`, `n_ieq_constr`/`n_eq_constr`, `out['G']`/`out['H']`). "
                 "Do not emit thin wrappers around local canonical benchmark classes. "
@@ -1378,7 +1377,7 @@ class LLMFormulationService:
         else:
             safe_base = cls._slugify_module_name(raw_base, default="generated_metric")
             system_prompt = (
-                "Act as a senior software engineer specialized in PlatEMO and optimization frameworks. "
+                "Act as a senior software engineer specialized in evolutionary optimization frameworks. "
                 "You write safe Python code for EmoPyLab metric modules. "
                 "Each module must expose create_metric(context) returning a callable metric(front)->float. "
                 "Return a strict JSON object with cpu_code and jax_code as strings. "
@@ -1552,9 +1551,9 @@ class LLMFormulationService:
                 "Placeholder benchmark fallback text detected (e.g., 'placeholder semantics' / 'could not be reliably recovered'). "
                 "LLM Agent must recover and implement the requested benchmark semantics via web_search sources, not ship placeholder semantics."
             )
-        if cls._looks_like_native_pymoo_problem_wrapper(code):
+        if cls._looks_like_native_problem_wrapper(code):
             issues.append(
-                "Native/local benchmark wrapper pattern detected. LLM Agent problem generation must implement/adapt the requested problem semantics directly (no thin wrapper around pymoo or local canonical problem classes)."
+                "Native/local benchmark wrapper pattern detected. LLM Agent problem generation must implement/adapt the requested problem semantics directly (no thin wrapper around local canonical problem classes)."
             )
         return len(issues) == 0, issues
 

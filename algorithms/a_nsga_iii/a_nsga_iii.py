@@ -1,8 +1,6 @@
 # emopylab 2026
 """A-NSGA-III: Adaptive NSGA-III.
 
-Faithful port of the PlatEMO implementation.
-
 Reference:
 H. Jain and K. Deb. An evolutionary many-objective optimization algorithm
 using reference-point based non-dominated sorting approach, part II:
@@ -56,7 +54,7 @@ def _associate_rho(P: np.ndarray, Z: np.ndarray) -> np.ndarray:
 def adaptive_reference(
     pop_obj: np.ndarray, Z: np.ndarray, N: int, interval: float,
 ) -> np.ndarray:
-    """Addition and deletion of reference points (PlatEMO Adaptive.m)."""
+    """Addition and deletion of reference points."""
     M = pop_obj.shape[1]
     rho = _associate_rho(pop_obj, Z)
     old_Z = None
@@ -83,7 +81,7 @@ def environmental_selection(
     pop: Population, N: int, Z: np.ndarray, z_min: Optional[np.ndarray],
     rng: np.random.Generator,
 ) -> Population:
-    """NSGA-III environmental selection (PlatEMO EnvironmentalSelection.m)."""
+    """NSGA-III environmental selection."""
     F = np.asarray(pop.get("F"), dtype=float)
     if z_min is None:
         z_min = np.ones(Z.shape[1])

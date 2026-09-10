@@ -176,7 +176,7 @@ def pop_from_array_or_individual(array, pop=None):
     if isinstance(array, Population):
         return array
     if hasattr(array, "__len__") and hasattr(array, "get") and not isinstance(array, (dict, str)):
-        # Population-like object from external/pymoo module
+        # Population-like object from external module
         try:
             return Population([ind for ind in array])
         except Exception:

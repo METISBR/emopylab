@@ -1,4 +1,4 @@
-"""EmoPyLab Native WFG (1-9) Benchmark Suite in Pure Tensors (Zero-Pymoo).
+"""EmoPyLab Native WFG (1-9) Benchmark Suite in Pure Tensors.
 
 Reference:
 S. Huband, P. Hingston, L. Barone, and L. While.

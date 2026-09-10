@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from .nsga3 import (
     NSGA3,
-    NSGA3Local,
     NSGAIII,
     HyperplaneNormalization,
     _environmental_selection,
@@ -22,7 +21,6 @@ from .nsga3 import (
 __all__ = [
     "NSGA3",
     "NSGAIII",
-    "NSGA3Local",
     "HyperplaneNormalization",
     "_environmental_selection",
     "_last_selection",

@@ -1,4 +1,4 @@
-"""EmoPyLab Reference Direction Generators (zero-pymoo standalone)."""
+"""EmoPyLab Reference Direction Generators."""
 
 from __future__ import annotations
 

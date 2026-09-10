@@ -1,4 +1,4 @@
-"""Fast Hypervolume calculation (PlatEMO-compatible + Direct-space raw MC).
+"""Fast Hypervolume calculation (Normalized + Direct-space raw MC).
 
 Provides two complementary evaluation regimes:
   1. hv_mc_raw (Direct-space QMC/MC):
@@ -9,8 +9,8 @@ Provides two complementary evaluation regimes:
        Vol        = prod(ref - L)
      Matches exact IQHV to within 0.02% via Sobol low-discrepancy sampling.
 
-  2. HV_fast_MC (PlatEMO-compatible default / Adaptive Dispatcher):
-     Applies PlatEMO's canonical normalization:
+  2. HV_fast_MC (Normalized / Adaptive Dispatcher):
+     Applies canonical normalization:
        fmin = min(min(PopObj), 0), fmax = max(optimum)
        PopObj_norm = (PopObj - fmin) / ((fmax - fmin) * 1.1)
        RefPoint = ones(M)
@@ -177,7 +177,7 @@ def HV_fast_MC(
     Modes:
       - "raw" / "direct" (default): pure direct-space QMC Monte Carlo without
         coordinate distortion. Matches exact IQHV to within 0.02%.
-      - "platemo": PlatEMO canonical normalization (fmin/fmax*1.1, ref=ones).
+      - "normalized" / "rescaled": Canonical normalization (fmin/fmax*1.1, ref=ones).
         Exact O(N log N) sweep-line for M<=3; fast GPU Monte Carlo for M>=4.
     """
     if pop_obj is None or optimum is None:
@@ -205,7 +205,7 @@ def HV_fast_MC(
                 ref_point = np.max(optimum, axis=0) * 1.1
         return hv_mc_raw(pop_obj, ref_point, sample_num=sample_num, seed=seed)
 
-    # --- PlatEMO-compatible canonical normalization ---
+    # --- Canonical normalization ---
     N, M = pop_obj.shape
     fmin = np.minimum(np.min(pop_obj, axis=0), np.zeros(M))
     fmax = np.max(optimum, axis=0)

@@ -1,4 +1,4 @@
-"""EmoPyLab Optimum and Pareto Front filtering helpers (zero-pymoo standalone)."""
+"""EmoPyLab Optimum and Pareto Front filtering helpers."""
 
 from __future__ import annotations
 

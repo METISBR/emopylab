@@ -1,4 +1,4 @@
-"""EmoPyLab Miscellaneous Utilities (zero-pymoo standalone)."""
+"""EmoPyLab Miscellaneous Utilities."""
 
 from __future__ import annotations
 

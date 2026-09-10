@@ -20,8 +20,6 @@ S. Schaeffler, R. Schultz, and K. Weinzierl (2002), "Stochastic Method
 for the Solution of Unconstrained Vector Optimization Problems," Journal of
 Optimization Theory and Applications, 114(1), 209--222.
 
-J. Blank and K. Deb (2020), "pymoo: Multi-Objective Optimization in Python,"
-IEEE Access, 8, 89497--89509.
 """
 
 from util.array_backend import xp as np

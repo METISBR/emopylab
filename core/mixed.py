@@ -1,4 +1,4 @@
-"""Mixed variable operators and mating for EmoPyLab (zero-pymoo)."""
+"""Mixed variable operators and mating for EmoPyLab."""
 
 from __future__ import annotations
 import numpy as np

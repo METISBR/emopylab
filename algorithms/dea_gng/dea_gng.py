@@ -1,8 +1,6 @@
 # emopylab 2026
 """DEA-GNG: Decomposition-based EA guided by Growing Neural Gas.
 
-Faithful port of the PlatEMO implementation (Copyright Yiping Liu).
-
 Reference:
 Y. Liu, H. Ishibuchi, N. Masuyama, and Y. Nojima. Adapting reference
 vectors and scalarizing functions by growing neural gas to handle
@@ -77,7 +75,7 @@ def _connected_components(edge: np.ndarray) -> np.ndarray:
 
 
 class _GNGNet:
-    """State container of the growing neural gas network (PlatEMO struct)."""
+    """State container of the growing neural gas network."""
 
     def __init__(self, max_age: int, max_node: int, lam: int, max_hp: int):
         self.max_iter = 1
@@ -100,11 +98,11 @@ def gng_update(
     rng: np.random.Generator,
     signal_cap: int = 0,
 ) -> _GNGNet:
-    """One training epoch of the GNG on the signal archive (PlatEMO GNGUpdate).
+    """One training epoch of the GNG on the signal archive.
 
     ``signal_cap > 0`` subsamples the training signals per epoch (uniformly,
-    without replacement).  The default 0 keeps the PlatEMO-faithful behavior of
-    iterating over the whole archive (up to M*N signals per generation), which
+    without replacement).  The default 0 iterates over the whole archive
+    (up to M*N signals per generation), which
     dominates DEA-GNG's wall time in Python; a cap of ~2N gives a large
     speed-up at a small fidelity cost and must be reported as an
     implementation deviation when used in comparisons.
@@ -219,7 +217,7 @@ def gng_update(
 
 
 def reference_combination(Ru: np.ndarray, net: _GNGNet) -> np.ndarray:
-    """Remove uniform vectors too close to GNG nodes (PlatEMO Algorithm 4)."""
+    """Remove uniform vectors too close to GNG nodes (Algorithm 4)."""
     node_s = net.node_s
     sums = np.maximum(np.sum(node_s, axis=1, keepdims=True), _EPS)
     node_p = node_s / sums

@@ -1,4 +1,4 @@
-"""EmoPyLab Dominance and Pareto relations (zero-pymoo standalone)."""
+"""EmoPyLab Dominance and Pareto relations."""
 
 from __future__ import annotations
 

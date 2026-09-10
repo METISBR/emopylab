@@ -1,4 +1,4 @@
-"""EmoPyLab Remote Data and Asset Loader (zero-pymoo standalone)."""
+"""EmoPyLab Remote Data and Asset Loader."""
 
 from __future__ import annotations
 

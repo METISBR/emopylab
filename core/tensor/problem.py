@@ -15,7 +15,7 @@ from core.tensor.backend import clip_bounds, get_array_module, to_device, to_num
 
 
 class TensorProblem(ABC):
-    """Abstract Base Class for Tensor-Native Evolutionary Problems (Zero-Pymoo)."""
+    """Abstract Base Class for Tensor-Native Evolutionary Problems."""
 
     def __init__(
         self,

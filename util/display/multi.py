@@ -1,4 +1,4 @@
-"""EmoPyLab Multi-Objective and Single-Objective Display / Output (zero-pymoo standalone)."""
+"""EmoPyLab Multi-Objective and Single-Objective Display / Output."""
 
 from __future__ import annotations
 

@@ -463,8 +463,8 @@ class SAGEMOEA(Algorithm):
         """Indices of the reported subset (projection-uniform reporting).
 
         For two objectives the reported set is resampled uniformly over the
-        observed f1 range: every reference-front construction used by the
-        standard platforms (EmoPyLab, PlatEMO, jMetal) samples the ZDT front
+        observed f1 range: every reference-front construction used by standard
+        benchmark platforms samples the ZDT front
         uniformly in f1, so a projection-uniform report is the distribution
         the benchmark literature defines as well-spread -- the reporting
         analogue of NSGA-III's uniform reference directions.  For M > 2

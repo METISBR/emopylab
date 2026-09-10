@@ -161,12 +161,7 @@ BACKEND_OPTIONS: dict[str, str] = {
     "mlx": "MLX (Apple Silicon)",
 }
 
-EMOPYLAB_CATALOG_API_TREE_URL = "https://api.github.com/repos/anyoptimization/pymoo/git/trees/main-recursive=1"
-EMOPYLAB_CATALOG_RAW_BASE_URL = "https://raw.githubusercontent.com/anyoptimization/pymoo/main/"
 EMOPYLAB_CATALOG_USER_AGENT = "EmoPyLab-dynamic-registry/2.0"
-PYMOO_GITHUB_API_TREE_URL = EMOPYLAB_CATALOG_API_TREE_URL
-PYMOO_GITHUB_RAW_BASE_URL = EMOPYLAB_CATALOG_RAW_BASE_URL
-PYMOO_GITHUB_USER_AGENT = EMOPYLAB_CATALOG_USER_AGENT
 
 OPERATOR_CATEGORY_META: dict[str, tuple[str, str, str]] = {
     "crossover": ("operators.crossover", "core.crossover", "Crossover"),
@@ -260,17 +255,13 @@ LOCAL_ALGORITHM_EXCLUDED_ROOTS = {"base", "moo", "soo", "__pycache__"}
 LOCAL_ALGORITHM_EXCLUDED_FILES = {"hyperparameters.py", "ssw_rdpa copy.py"}
 OPTIONAL_BUILTIN_ALGORITHM_MODULE_HINTS = {"optuna"}
 EXCLUDED_BUILTIN_ALGORITHM_MODULE_HINTS = {"mopso_cd"}
-OPTIONAL_PYMOO_ALGORITHM_MODULE_HINTS = OPTIONAL_BUILTIN_ALGORITHM_MODULE_HINTS
-EXCLUDED_PYMOO_ALGORITHM_MODULE_HINTS = EXCLUDED_BUILTIN_ALGORITHM_MODULE_HINTS
 LOCAL_METRIC_FOLDERS = ("metrics",)
 
 SOURCE_EMOPYLAB = "emopylab"
 SOURCE_BUILTIN = "emopylab"
-SOURCE_PYMOO = "emopylab"
 SOURCE_LOCAL = "local"
-SOURCE_GUIPYMOO = SOURCE_LOCAL
 SOURCE_LOCAL_LEGACY = SOURCE_LOCAL
-CUSTOM_SOURCE_VALUES = {SOURCE_LOCAL, "guipymoo", "local"}
+CUSTOM_SOURCE_VALUES = {SOURCE_LOCAL, "local"}
 
 
 def _is_custom_source(source: str) -> bool:
@@ -1237,15 +1228,7 @@ def _attach_module_alias(alias_name: str, module_obj: types.ModuleType) -> None:
 
 
 def _install_legacy_runtime_aliases() -> None:
-    """
-    Provide lightweight legacy import aliases used by local legacy plugins.
-
-    This maps any legacy pymoo module requests (pymoo.core.*, pymoo.util.*,
-    pymoo.algorithms.*, pymoo.optimize, pymoo.termination, pymoo.operators.*)
-    directly to EmoPyLab's native core.*, util.*, algorithms.*, optimize,
-    termination, and operators.* modules in sys.modules.
-    """
-    # Prefer the real backend-aware modules (MLX/JAX) when importable.
+    """Ensure core, util, operators, and algorithms are initialized in sys.modules."""
     for _real_module in (
         "util.array_backend",
         "core.algorithm",
@@ -1283,7 +1266,6 @@ def _install_legacy_runtime_aliases() -> None:
             except Exception:
                 pass
 
-    # Ensure base packages exist in sys.modules.
     _ensure_virtual_package("core")
     _ensure_virtual_package("util")
     _ensure_virtual_package("operators")
@@ -1306,100 +1288,6 @@ def _install_legacy_runtime_aliases() -> None:
         setattr(util_pkg, "default_random_state", native_default_random_state)
     except Exception:
         pass
-
-    # Map legacy pymoo module paths to native EmoPyLab modules in sys.modules.
-    pymoo_mappings = {
-        "pymoo.core": "core",
-        "pymoo.core.algorithm": "core.algorithm",
-        "pymoo.core.problem": "core.problem",
-        "pymoo.core.population": "core.population",
-        "pymoo.core.individual": "core.individual",
-        "pymoo.core.duplicate": "core.duplicate",
-        "pymoo.core.mating": "core.mating",
-        "pymoo.core.mixed": "core.mixed",
-        "pymoo.core.parameters": "core.parameters",
-        "pymoo.core.variable": "core.variable",
-        "pymoo.core.crossover": "core.crossover",
-        "pymoo.core.mutation": "core.mutation",
-        "pymoo.core.sampling": "core.sampling",
-        "pymoo.core.selection": "core.selection",
-        "pymoo.core.repair": "core.repair",
-        "pymoo.core.replacement": "core.replacement",
-        "pymoo.core.survival": "core.survival",
-        "pymoo.core.infill": "core.infill",
-        "pymoo.core.evaluator": "core.evaluator",
-        "pymoo.core.callback": "core.callback",
-        "pymoo.core.result": "core.result",
-        "pymoo.core.termination": "core.termination",
-        "pymoo.core.operator": "core.operator",
-        "pymoo.core.initialization": "core.initialization",
-        "pymoo.optimize": "core.optimize",
-        "pymoo.termination": "core.termination",
-        "pymoo.util": "util",
-        "pymoo.util.misc": "util.misc",
-        "pymoo.util.ref_dirs": "util.ref_dirs",
-        "pymoo.util.optimum": "util.optimum",
-        "pymoo.util.dominator": "util.dominator",
-        "pymoo.util.array_backend": "util.array_backend",
-        "pymoo.util.randomized_argsort": "util.randomized_argsort",
-        "pymoo.util.nds.non_dominated_sorting": "util.nds.non_dominated_sorting",
-        "pymoo.util.display.multi": "util.display.multi",
-        "pymoo.operators": "operators",
-        "pymoo.operators.crossover": "operators.crossover",
-        "pymoo.operators.crossover.sbx": "operators.crossover.sbx",
-        "pymoo.operators.crossover.ux": "operators.crossover.ux",
-        "pymoo.operators.crossover.binx": "operators.crossover.binx",
-        "pymoo.operators.crossover.dex": "operators.crossover.dex",
-        "pymoo.operators.crossover.expx": "operators.crossover.expx",
-        "pymoo.operators.crossover.erx": "operators.crossover.erx",
-        "pymoo.operators.crossover.hux": "operators.crossover.hux",
-        "pymoo.operators.crossover.nox": "operators.crossover.nox",
-        "pymoo.operators.crossover.ox": "operators.crossover.ox",
-        "pymoo.operators.crossover.pcx": "operators.crossover.pcx",
-        "pymoo.operators.crossover.pntx": "operators.crossover.pntx",
-        "pymoo.operators.crossover.spx": "operators.crossover.spx",
-        "pymoo.operators.mutation": "operators.mutation",
-        "pymoo.operators.mutation.pm": "operators.mutation.pm",
-        "pymoo.operators.mutation.bitflip": "operators.mutation.bitflip",
-        "pymoo.operators.mutation.gauss": "operators.mutation.gauss",
-        "pymoo.operators.mutation.inversion": "operators.mutation.inversion",
-        "pymoo.operators.mutation.nom": "operators.mutation.nom",
-        "pymoo.operators.mutation.rm": "operators.mutation.rm",
-        "pymoo.operators.repair": "operators.repair",
-        "pymoo.operators.repair.bounds_repair": "operators.repair.bounds_repair",
-        "pymoo.operators.repair.rounding": "operators.repair.rounding",
-        "pymoo.operators.repair.to_bound": "operators.repair.to_bound",
-        "pymoo.operators.repair.bounce_back": "operators.repair.bounce_back",
-        "pymoo.operators.repair.inverse_penalty": "operators.repair.inverse_penalty",
-        "pymoo.operators.repair.vtype": "operators.repair.vtype",
-        "pymoo.operators.sampling": "operators.sampling",
-        "pymoo.operators.sampling.lhs": "operators.sampling.lhs",
-        "pymoo.operators.sampling.rnd": "operators.sampling.rnd",
-        "pymoo.operators.selection": "operators.selection",
-        "pymoo.operators.selection.tournament": "operators.selection.tournament",
-        "pymoo.operators.selection.rnd": "operators.selection.rnd",
-        "pymoo.operators.survival": "operators.survival",
-        "pymoo.operators.survival.rank_and_crowding": "operators.survival.rank_and_crowding",
-        "pymoo.operators.survival.rank_and_crowding.classes": "operators.survival.rank_and_crowding.classes",
-        "pymoo.operators.survival.rank_and_crowding.metrics": "operators.survival.rank_and_crowding.metrics",
-        "pymoo.algorithms": "algorithms",
-        "pymoo.algorithms.moo": "algorithms.moo",
-        "pymoo.algorithms.moo.nsga2": "algorithms.moo.nsga2",
-        "pymoo.algorithms.moo.nsga3": "algorithms.moo.nsga3",
-        "pymoo.algorithms.moo.moead": "algorithms.moo.moead",
-        "pymoo.algorithms.moo.rvea": "algorithms.moo.rvea",
-        "pymoo.algorithms.moo.age2": "algorithms.moo.age2",
-    }
-
-    _ensure_virtual_package("pymoo")
-
-    # Register parents before child modules so packages exist before child attributes are attached
-    for alias_name, target_name in sorted(pymoo_mappings.items(), key=lambda item: item[0].count(".")):
-        try:
-            target_module = importlib.import_module(target_name)
-        except Exception:
-            continue
-        _attach_module_alias(alias_name, target_module)
 
 
 _install_legacy_runtime_aliases()
@@ -1445,8 +1333,8 @@ def _collect_algorithm_flags(module: Any, entry_name: str, entry_obj: Any) -> se
     return flags
 
 
-def _patch_known_pymoo_algorithm_flags(display_name: str, flags: set[str]) -> set[str]:
-    """Add missing scope flags for known pymoo algorithms when discovery metadata is incomplete."""
+def _patch_known_algorithm_flags(display_name: str, flags: set[str]) -> set[str]:
+    """Add missing scope flags for known algorithms when discovery metadata is incomplete."""
     fixed = set(flags or set())
     key = _normalize_type_name_key(display_name)
 
@@ -1937,7 +1825,7 @@ def _instantiate_operator_from_class(
             return "default"
 
 
-def create_pymoo_operator(
+def create_operator(
     operator_type: str,
     operator_name: str,
     n_obj: int = 2,
@@ -1945,17 +1833,17 @@ def create_pymoo_operator(
     **params: Any,
 ) -> Any:
     """
-    Create a pymoo operator instance from its name or fully-qualified spec id.
+    Create an operator instance from its name or fully-qualified spec id.
 
     Args:
         operator_type: Type of operator ('crossover', 'mutation', 'selection', 'sampling')
-        operator_name: Alias ('sbx'), spec id ('pymoo::module.Class'), or 'default'/'none'
+        operator_name: Alias ('sbx'), spec id ('module.Class'), or 'default'/'none'
         n_obj: Number of objectives (kept for compatibility)
         pop_size: Population size (kept for compatibility)
         **params: Operator hyperparameters from configuration.
 
     Returns:
-        Instance of the operator, None for 'none', or 'default' to use pymoo defaults.
+        Instance of the operator, None for 'none', or 'default' to use defaults.
     """
     _ = n_obj
     _ = pop_size
@@ -2004,12 +1892,12 @@ def create_pymoo_operator(
 
 def instantiate_algorithm_class(cls: Any, config: dict[str, Any]) -> Any:
     """
-    Instantiate a pymoo algorithm class with configuration from config dict.
+    Instantiate an algorithm class with configuration from config dict.
 
     Parameters are read from config in priority order:
     1. Explicitly provided in config (e.g., crossover, mutation, selection)
     2. Computed from other config values (pop_size, n_obj, ref_dirs)
-    3. pymoo default values (for operators like crossover, mutation, selection)
+    3. Algorithm default values (for operators like crossover, mutation, selection)
 
     Args:
         cls: The algorithm class to instantiate
@@ -2060,7 +1948,7 @@ def instantiate_algorithm_class(cls: Any, config: dict[str, Any]) -> Any:
                 if op_value == "default":
                     continue
                 else:
-                    operator = create_pymoo_operator(
+                    operator = create_operator(
                         op_param, op_value,
                         n_obj=n_obj, pop_size=pop_size,
                         **operator_extra_params,
@@ -2091,7 +1979,7 @@ def instantiate_algorithm_class(cls: Any, config: dict[str, Any]) -> Any:
         # Otherwise use prepared values if available
         elif name in prepared:
             kwargs[name] = prepared[name]
-        # If parameter has a default, skip it (pymoo will use its default)
+        # If parameter has a default, skip it (algorithm will use its default)
         elif param.default is not inspect._empty:
             continue
         # Required parameter with no default - raise error
@@ -2260,11 +2148,7 @@ def _collect_remote_module_names(
 
 
 def _module_name_to_repo_path(module_name: str) -> str | None:
-    mod = str(module_name).strip()
-    if not mod.startswith("pymoo."):
-        return None
-    return mod.replace(".", "/") + ".py"
-
+    return None
 
 @lru_cache(maxsize=2048)
 def _fetch_emopylab_catalog_raw_source(repo_path: str) -> str:
@@ -2352,7 +2236,7 @@ def _call_factory_callable(factory: Callable[..., Any], config: dict[str, Any], 
     raise RuntimeError(f"Could not call {role} factory '{factory.__name__}'. Missing args: {missing}")
 
 
-def _build_problem_from_pymoo_name(name: str, config: dict[str, Any]) -> Any:
+def _build_problem_from_builtin_name(name: str, config: dict[str, Any]) -> Any:
     from problems import get_problem
     candidates: list[dict[str, Any]] = []
     n_var_raw = config.get("n_var")
@@ -2398,26 +2282,8 @@ def _extract_problem_names_from_get_problem_source(source: str) -> set[str]:
     return names
 
 
-@lru_cache(maxsize=1)
-def _fetch_problem_names_from_catalog_github() -> tuple[str, ...]:
-    """
-    Fetch the problem registry from upstream catalog reference.
-    Falls back to empty list when offline or unavailable.
-    """
-    source = _fetch_emopylab_catalog_raw_source("pymoo/problems/__init__.py")
-    if not source:
-        return tuple()
-    names = _extract_problem_names_from_get_problem_source(source)
-    return tuple(sorted(names))
-
-_fetch_problem_names_from_pymoo_github = _fetch_problem_names_from_catalog_github
-
 def _parse_builtin_problem_names() -> list[str]:
     names: set[str] = set(DEFAULT_PROBLEM_DIMS)
-
-    # 1) Prefer upstream pymoo main branch for the latest published registry.
-    names.update(_fetch_problem_names_from_catalog_github())
-
     try:
         from problems.registry import list_problem_names
         names.update(list_problem_names())
@@ -2547,11 +2413,11 @@ def _build_metric_callable_from_entry(entry: Any, context: dict[str, Any]) -> Ca
         raise RuntimeError(f"Metric indicator is not callable: {type(indicator_obj)}")
 
     try:
-        from metrics.indicators import Indicator as PymooIndicator
+        from metrics.indicators import Indicator as BaseIndicator
     except Exception:  # noqa: BLE001
-        PymooIndicator = None  # type: ignore[assignment]
+        BaseIndicator = None  # type: ignore[assignment]
 
-    if PymooIndicator is not None and inspect.isclass(entry) and issubclass(entry, PymooIndicator):
+    if BaseIndicator is not None and inspect.isclass(entry) and issubclass(entry, BaseIndicator):
         indicator = _build_indicator_instance(entry, context)
         return _indicator_to_metric(indicator)
 
@@ -2584,7 +2450,7 @@ def _build_metric_callable_from_entry(entry: Any, context: dict[str, Any]) -> Ca
         if callable(produced):
             return lambda front: float(_call_metric_fn(produced, np.asarray(front, dtype=float), context))
 
-        if PymooIndicator is not None and isinstance(produced, PymooIndicator):
+        if BaseIndicator is not None and isinstance(produced, BaseIndicator):
             return _indicator_to_metric(produced)
 
         raise RuntimeError(f"Metric factory returned unsupported object: {type(produced)}")
@@ -2670,69 +2536,16 @@ def _build_dynamic_hypervolume_metric(
 
 
 def _register_builtin_hypervolume_specs(specs: dict[str, MetricSpec], warnings: list[str]) -> None:
-    hv_specs: list[tuple[str, str, str, dict[str, Any] | None]] = [
-        (
-            "pymoo.indicators.hv.approximate",
-            "ApproximateHypervolume",
-            "HV Monte Carlo",
-            {
-                "n_samples_key": "hv_mc_samples",
-                "n_samples_default": 10000,
-                "n_exclusive_key": "hv_mc_exclusive",
-                "n_exclusive_default": 1,
-            },
-        ),
-    ]
-
-    for module_name, class_name, display_name, mc_cfg in hv_specs:
-        try:
-            module = importlib.import_module(module_name)
-            cls = getattr(module, class_name)
-        except Exception as exc:  # noqa: BLE001
-            warnings.append(f"Could not register {module_name}.{class_name}: {exc}")
-            continue
-
-        spec_id = f"pymoo::{module_name}.{class_name}"
-        if spec_id in specs:
-            continue
-
-        if mc_cfg is None:
-            factory = lambda context, cls=cls: _build_dynamic_hypervolume_metric(cls, context)
-        else:
-            factory = (
-                lambda context, cls=cls, mc_cfg=mc_cfg: _build_dynamic_hypervolume_metric(
-                    cls,
-                    context,
-                    init_kwargs={
-                        "n_samples": _positive_int(
-                            context.get(mc_cfg["n_samples_key"], mc_cfg["n_samples_default"]),
-                            int(mc_cfg["n_samples_default"]),
-                        ),
-                        "n_exclusive": _positive_int(
-                            context.get(mc_cfg["n_exclusive_key"], mc_cfg["n_exclusive_default"]),
-                            int(mc_cfg["n_exclusive_default"]),
-                        ),
-                    },
-                )
-            )
-
-        specs[spec_id] = MetricSpec(
-            id=spec_id,
-            name=display_name,
-            source="pymoo",
-            module=module_name,
-            factory=factory,
-        )
-
+    pass
 
 def discover_algorithm_specs(base_dir: Path, warnings: list[str]) -> dict[str, AlgorithmSpec]:
     specs: dict[str, AlgorithmSpec] = {}
 
     # Map class name -> display name from metadata for better UI
-    algo_display_names = {item["class_name"]: item["name"] for item in getattr(emopylab_metadata, "EMOPYLAB_ALGORITHMS", emopylab_metadata.PYMOO_ALGORITHMS)}
+    algo_display_names = {item["class_name"]: item["name"] for item in getattr(emopylab_metadata, "EMOPYLAB_ALGORITHMS", [])}
     algo_display_names_norm = {
         _normalize_type_name_key(item["class_name"]): item["name"]
-        for item in getattr(emopylab_metadata, "EMOPYLAB_ALGORITHMS", emopylab_metadata.PYMOO_ALGORITHMS)
+        for item in getattr(emopylab_metadata, "EMOPYLAB_ALGORITHMS", [])
     }
 
     try:
@@ -2748,14 +2561,13 @@ def discover_algorithm_specs(base_dir: Path, warnings: list[str]) -> dict[str, A
         except Exception as exc:  # noqa: BLE001
             pass
 
-        module_names.update(_collect_remote_module_names("pymoo/algorithms", "pymoo.algorithms."))
 
         for module_name in sorted(module_names):
             if ".moo" not in module_name and ".soo" not in module_name:
                 continue
-            if any(f".{hint}" in module_name for hint in OPTIONAL_PYMOO_ALGORITHM_MODULE_HINTS):
+            if any(f".{hint}" in module_name for hint in OPTIONAL_BUILTIN_ALGORITHM_MODULE_HINTS):
                 continue
-            if any(f".{hint}" in module_name for hint in EXCLUDED_PYMOO_ALGORITHM_MODULE_HINTS):
+            if any(f".{hint}" in module_name for hint in EXCLUDED_BUILTIN_ALGORITHM_MODULE_HINTS):
                 continue
             try:
                 module = importlib.import_module(module_name)
@@ -2783,7 +2595,7 @@ def discover_algorithm_specs(base_dir: Path, warnings: list[str]) -> dict[str, A
                         {"Algorithm", "GeneticAlgorithm", "EvolutionaryAlgorithm"},
                     )
                 for class_name in fallback_classes:
-                    spec_id = f"pymoo::{module_name}.{class_name}"
+                    spec_id = f"builtin::{module_name}.{class_name}"
                     if spec_id in specs:
                         continue
 
@@ -2804,10 +2616,10 @@ def discover_algorithm_specs(base_dir: Path, warnings: list[str]) -> dict[str, A
                     specs[spec_id] = AlgorithmSpec(
                         id=spec_id,
                         name=display_name,
-                        source="pymoo",
+                        source=SOURCE_EMOPYLAB,
                         module=module_name,
                         factory=_lazy_algo_factory,
-                        flags=_patch_known_pymoo_algorithm_flags(display_name, set()),
+                        flags=_patch_known_algorithm_flags(display_name, set()),
                     )
                 continue
 
@@ -2823,7 +2635,7 @@ def discover_algorithm_specs(base_dir: Path, warnings: list[str]) -> dict[str, A
                 if not is_algo or cls is Algorithm:
                     continue
 
-                spec_id = f"pymoo::{cls.__module__}.{cls.__name__}"
+                spec_id = f"builtin::{cls.__module__}.{cls.__name__}"
                 if spec_id in specs:
                     continue
 
@@ -2835,16 +2647,16 @@ def discover_algorithm_specs(base_dir: Path, warnings: list[str]) -> dict[str, A
                 specs[spec_id] = AlgorithmSpec(
                     id=spec_id,
                     name=display_name,
-                    source="pymoo",
+                    source=SOURCE_EMOPYLAB,
                     module=cls.__module__,
                     factory=lambda cfg, cls=cls: instantiate_algorithm_class(cls, cfg),
-                    flags=_patch_known_pymoo_algorithm_flags(
+                    flags=_patch_known_algorithm_flags(
                         display_name,
                         _collect_algorithm_flags(module, cls.__name__, cls),
                     ),
                 )
     except Exception as exc:  # noqa: BLE001
-        warnings.append(f"pymoo algorithms discovery failed: {exc}")
+        warnings.append(f"algorithms discovery failed: {exc}")
 
     folder = base_dir / "algorithms"
     for py_file in sorted(folder.rglob("*.py")):
@@ -2935,7 +2747,7 @@ def discover_algorithm_specs(base_dir: Path, warnings: list[str]) -> dict[str, A
             specs[spec_id] = AlgorithmSpec(
                 id=spec_id,
                 name=str(entry_name),
-                source=SOURCE_GUIPYMOO,
+                source=SOURCE_LOCAL,
                 module=module.__name__,
                 factory=_local_factory,
                 flags=entry_flags,
@@ -3193,7 +3005,7 @@ def discover_problem_specs(base_dir: Path, warnings: list[str]) -> dict[str, Pro
             candidate_spec = ProblemSpec(
                 id=spec_id,
                 name=entry_name_canonical,
-                source=SOURCE_GUIPYMOO,
+                source=SOURCE_LOCAL,
                 module=module.__name__,
                 default_n_var=default_n_var,
                 default_n_obj=default_n_obj,
@@ -3231,7 +3043,7 @@ def discover_problem_specs(base_dir: Path, warnings: list[str]) -> dict[str, Pro
                     jax_candidate = ProblemSpec(
                         id=jax_spec_id,
                         name=jax_name,
-                        source=SOURCE_GUIPYMOO,
+                        source=SOURCE_LOCAL,
                         module=module.__name__,
                         default_n_var=default_n_var,
                         default_n_obj=default_n_obj,
@@ -3292,7 +3104,7 @@ def discover_problem_specs(base_dir: Path, warnings: list[str]) -> dict[str, Pro
         specs[spec_id] = ProblemSpec(
             id=spec_id,
             name=name,
-            source=SOURCE_GUIPYMOO,
+            source=SOURCE_LOCAL,
             module=f"problems._matlab_source_catalog.{module_hint}",
             default_n_var=default_n_var,
             default_n_obj=default_n_obj,
@@ -3322,7 +3134,7 @@ def discover_problem_specs(base_dir: Path, warnings: list[str]) -> dict[str, Pro
                 specs[jax_spec_id] = ProblemSpec(
                     id=jax_spec_id,
                     name=jax_name,
-                    source=SOURCE_GUIPYMOO,
+                    source=SOURCE_LOCAL,
                     module=f"problems._matlab_source_catalog.{module_hint}_JAX",
                     default_n_var=default_n_var,
                     default_n_obj=default_n_obj,
@@ -3347,7 +3159,7 @@ def discover_metric_specs(base_dir: Path, warnings: list[str]) -> dict[str, Metr
 
     try:
         from metrics.indicators import Indicator
-        official_metrics = getattr(emopylab_metadata, "EMOPYLAB_METRICS", getattr(emopylab_metadata, "PYMOO_METRICS", {}))
+        official_metrics = getattr(emopylab_metadata, "EMOPYLAB_METRICS", {})
         module_names: set[str] = set()
         try:
             import metrics as metrics_pkg
@@ -3357,7 +3169,6 @@ def discover_metric_specs(base_dir: Path, warnings: list[str]) -> dict[str, Metr
             )
         except Exception:
             pass
-        module_names.update(_collect_remote_module_names("pymoo/indicators", "pymoo.indicators."))
         for module_name in sorted(module_names):
             try:
                 module = importlib.import_module(module_name)
@@ -3379,15 +3190,15 @@ def discover_metric_specs(base_dir: Path, warnings: list[str]) -> dict[str, Metr
                     fallback_classes = _extract_class_names_from_remote_module_source(module_name, {"Indicator"})
 
                 for class_name in fallback_classes:
-                    spec_id = f"pymoo::{module_name}.{class_name}"
+                    spec_id = f"builtin::{module_name}.{class_name}"
                     if spec_id in specs:
                         continue
 
                     display_name = str(official_metrics.get(class_name, class_name))
                     display_key = re.sub(r"\s+", " ", display_name.strip().lower())
-                    if display_key in pymoo_metric_name_keys:
+                    if display_key in builtin_metric_name_keys:
                         continue
-                    pymoo_metric_name_keys.add(display_key)
+                    builtin_metric_name_keys.add(display_key)
 
                     def _lazy_metric_factory(
                         context: dict[str, Any],
@@ -3401,7 +3212,7 @@ def discover_metric_specs(base_dir: Path, warnings: list[str]) -> dict[str, Metr
                     specs[spec_id] = MetricSpec(
                         id=spec_id,
                         name=display_name,
-                        source=SOURCE_PYMOO,
+                        source=SOURCE_EMOPYLAB,
                         module=module_name,
                         factory=_lazy_metric_factory,
                     )
@@ -3419,26 +3230,26 @@ def discover_metric_specs(base_dir: Path, warnings: list[str]) -> dict[str, Metr
                 if not is_indicator or cls is Indicator:
                     continue
 
-                spec_id = f"pymoo::{cls.__module__}.{cls.__name__}"
+                spec_id = f"builtin::{cls.__module__}.{cls.__name__}"
                 if spec_id in specs:
                     continue
 
                 display_name = str(official_metrics.get(class_name, class_name))
                 display_key = re.sub(r"\s+", " ", display_name.strip().lower())
-                if display_key in pymoo_metric_name_keys:
+                if display_key in builtin_metric_name_keys:
                     continue
-                pymoo_metric_name_keys.add(display_key)
+                builtin_metric_name_keys.add(display_key)
                 specs[spec_id] = MetricSpec(
                     id=spec_id,
                     name=display_name,
-                    source=SOURCE_PYMOO,
+                    source=SOURCE_EMOPYLAB,
                     module=cls.__module__,
                     factory=lambda context, cls=cls: (
                         lambda front: float(_build_indicator_instance(cls, context)(np.asarray(front, dtype=float)))
                     ),
                 )
     except Exception as exc:  # noqa: BLE001
-        warnings.append(f"pymoo indicators discovery failed: {exc}")
+        warnings.append(f"indicators discovery failed: {exc}")
 
     _register_builtin_hypervolume_specs(specs, warnings)
 
@@ -3527,7 +3338,7 @@ def discover_metric_specs(base_dir: Path, warnings: list[str]) -> dict[str, Metr
                 specs[spec_id] = MetricSpec(
                     id=spec_id,
                     name=str(entry_name),
-                    source=SOURCE_GUIPYMOO,
+                    source=SOURCE_LOCAL,
                     module=module.__name__,
                     factory=lambda context, entry_obj=entry_obj: _build_metric_callable_from_entry(entry_obj, context),
                 )
@@ -3536,7 +3347,7 @@ def discover_metric_specs(base_dir: Path, warnings: list[str]) -> dict[str, Metr
     specs = {
         sid: spec
         for sid, spec in specs.items()
-        if str(getattr(spec, "source", "")).strip().lower() != str(SOURCE_PYMOO).strip().lower()
+        if str(getattr(spec, "source", "")).strip().lower() != str(SOURCE_EMOPYLAB).strip().lower()
     }
 
     return specs
@@ -3558,7 +3369,7 @@ def discover_operator_specs(
             base_cls = getattr(base_module, base_class_name)
             base_cls_by_category[category] = base_cls
         except Exception as exc:  # noqa: BLE001
-            warnings.append(f"pymoo operator discovery failed for {category}: {exc}")
+            warnings.append(f"operator discovery failed for {category}: {exc}")
             continue
 
         try:
@@ -3597,14 +3408,14 @@ def discover_operator_specs(
                     )
 
                 for class_name in fallback_classes:
-                    spec_id = f"pymoo::{module_name}.{class_name}"
+                    spec_id = f"builtin::{module_name}.{class_name}"
                     if spec_id in specs[category]:
                         continue
 
                     specs[category][spec_id] = OperatorSpec(
                         id=spec_id,
                         name=class_name,
-                        source=SOURCE_PYMOO,
+                        source=SOURCE_EMOPYLAB,
                         category=category,
                         module=module_name,
                         class_name=class_name,
@@ -3620,14 +3431,14 @@ def discover_operator_specs(
                 except Exception:  # noqa: BLE001
                     continue
 
-                spec_id = f"pymoo::{module_name}.{class_name}"
+                spec_id = f"builtin::{module_name}.{class_name}"
                 if spec_id in specs[category]:
                     continue
 
                 specs[category][spec_id] = OperatorSpec(
                     id=spec_id,
                     name=class_name,
-                    source="pymoo",
+                    source=SOURCE_EMOPYLAB,
                     category=category,
                     module=module_name,
                     class_name=class_name,
@@ -3683,7 +3494,7 @@ def discover_operator_specs(
     for category, alias_map in LEGACY_OPERATOR_ALIASES.items():
         category_specs = specs.setdefault(category, {})
         for module_name, class_name in alias_map.values():
-            spec_id = f"pymoo::{module_name}.{class_name}"
+            spec_id = f"builtin::{module_name}.{class_name}"
             if spec_id in category_specs:
                 continue
             try:
@@ -3694,7 +3505,7 @@ def discover_operator_specs(
             category_specs[spec_id] = OperatorSpec(
                 id=spec_id,
                 name=class_name,
-                source="pymoo",
+                source=SOURCE_EMOPYLAB,
                 category=category,
                 module=module_name,
                 class_name=class_name,
@@ -3856,7 +3667,7 @@ class ExperimentBridge(QObject):
         try:
             import jax
             import jax.numpy as jnp
-            from core.problem import Problem as PymooProblem
+            from core.problem import Problem as BaseProblem
         except Exception:  # noqa: BLE001
             return None
         use_float64 = str(gpu_dtype).lower() == "float64"
@@ -3869,7 +3680,7 @@ class ExperimentBridge(QObject):
         if not callable(eval_f):
             return None
 
-        class JaxWrappedProblem(PymooProblem):
+        class JaxWrappedProblem(BaseProblem):
             def __init__(self, base_problem: Any) -> None:
                 self._base_problem = base_problem
                 self._jax_wrapped = True
@@ -4047,7 +3858,7 @@ class ExperimentBridge(QObject):
         *,
         n_obj_hint: int | None = None,
     ) -> np.ndarray | None:
-        # PlatEMO-style PF image often comes as {X, Y, Z} grids for visualization.
+        # Reference PF image often comes as {X, Y, Z} grids for visualization.
         # Convert coordinate grids to point cloud only when dimensionality matches n_obj.
         if value is None:
             return None
@@ -4102,7 +3913,7 @@ class ExperimentBridge(QObject):
         *,
         n_obj_hint: int | None = None,
     ) -> bool:
-        # PlatEMO base PROBLEM uses ones(1, M) when true PF is unknown.
+        # Standard base PROBLEM uses ones(1, M) when true PF is unknown.
         if not isinstance(front, np.ndarray) or front.ndim != 2 or front.size == 0:
             return True
         if front.shape[0] != 1:
@@ -4436,7 +4247,7 @@ class ExperimentBridge(QObject):
                     sub_config["problem_instance_id"] = problem_instance_id
                     if problem_label_override:
                         sub_config["problem_label_override"] = problem_label_override
-                    if problem_spec.source == "pymoo":
+                    if problem_spec.source in ("emopylab", "builtin"):
                         sub_config["n_obj"] = int(problem_spec.default_n_obj)
                         sub_config["n_var"] = int(problem_spec.default_n_var)
                     override = problem_entry.get("override")
@@ -4559,7 +4370,7 @@ class ExperimentBridge(QObject):
         config_n_var = int(self.config.get("n_var", problem_spec.default_n_var))
         config_n_obj = int(self.config.get("n_obj", problem_spec.default_n_obj))
         pop_size = int(self.config.get("pop_size", 100))
-        if problem_spec.source == "pymoo":
+        if problem_spec.source in ("emopylab", "builtin"):
             config_n_var = int(problem_spec.default_n_var)
             config_n_obj = int(problem_spec.default_n_obj)
         problem_override = problem_entry.get("override")
@@ -6018,10 +5829,10 @@ class EmoPyLabMainWindow(QMainWindow):
         if resolved is None:
             return cleaned
         module_name, class_name = resolved
-        source = SOURCE_PYMOO
+        source = SOURCE_EMOPYLAB
         if "::" in cleaned:
             raw_source = cleaned.split("::", 1)[0].strip().lower()
-            source = SOURCE_LOCAL if _is_custom_source(raw_source) else raw_source or SOURCE_PYMOO
+            source = SOURCE_LOCAL if _is_custom_source(raw_source) else raw_source or SOURCE_EMOPYLAB
         return f"{source}::{module_name}.{class_name}"
 
     def _operator_class_name(self, operator_type: str, value: Any) -> str:
@@ -6547,7 +6358,7 @@ class EmoPyLabMainWindow(QMainWindow):
         scope_row.addRow("Scope:", self.llm_problem_scope_combo)
         llm_problem_scope_layout.addLayout(scope_row)
         self.llm_problem_scope_summary_label = QLabel(
-            "Describe the problem in natural language. EmoPyLab refines the prompt for pymoo/EmoPyLab compatibility."
+            "Describe the problem in natural language. EmoPyLab refines the prompt for EmoPyLab compatibility."
         )
         self.llm_problem_scope_summary_label.setWordWrap(True)
         self.llm_problem_scope_summary_label.setStyleSheet(f"color: {AppStyles.TEXT_MUTED};")
@@ -6966,7 +6777,7 @@ class EmoPyLabMainWindow(QMainWindow):
             scope_desc = "Multi/Many-objective (m >= 2)"
         return (
             f"{scope_desc} preset selected (internal dimensions: n_var={n_var}, n_obj={n_obj}). "
-            "Write the request in natural language; EmoPyLab refines the prompt for pymoo/EmoPyLab compatibility."
+            "Write the request in natural language; EmoPyLab refines the prompt for EmoPyLab compatibility."
         )
 
     def _refresh_llm_problem_scope_summary(self) -> None:
@@ -7031,7 +6842,7 @@ class EmoPyLabMainWindow(QMainWindow):
                 "Build a source-linked inventory of benchmark functions and reported dimensions."
             )
         return (
-            "Generate one pymoo Problem plugin (CPU + _JAX) from natural language via local Qwen "
+            "Generate one EmoPyLab Problem plugin (CPU + _JAX) from natural language via local Qwen "
             f"({CoreLLMFormulationService.DEFAULT_LOCAL_MODEL}), with code aligned to EmoPyLab conventions. "
             "Use objective scope to set the n_obj preset. The internal prompt reinforces vectorized `Problem` code, "
             "`out['F']`, constraints in `out['G']`/`out['H']`, CPU/JAX parity, and no `if __name__ == '__main__':` block. "
@@ -7176,7 +6987,7 @@ class EmoPyLabMainWindow(QMainWindow):
         evidence = str(entry.get("evidence", "") or "").strip()
         notes = str(entry.get("notes", "") or "").strip()
         lines = [
-            "Generate one pymoo Problem plugin and a matching _JAX variant for the benchmark entry below.",
+            "Generate one EmoPyLab Problem plugin and a matching _JAX variant for the benchmark entry below."
             "This is a single-problem generation request (not a list/catalog request).",
             "",
             f"Benchmark name: {name}",
@@ -7191,7 +7002,7 @@ class EmoPyLabMainWindow(QMainWindow):
             "",
             "Requirements:",
             "- Generate exactly one Problem plugin pair (CPU and JAX) compatible with EmoPyLab.",
-            "- Use `from core.problem import Problem` (the `pymoo.*` module alias remains as fallback) and vectorized `_evaluate(self, X, out, *args, **kwargs)`.",
+            "- Use `from core.problem import Problem` and vectorized `_evaluate(self, X, out, *args, **kwargs)`."
             "- Set `out['F']` with shape (N, n_obj) and define valid `xl` / `xu` bounds.",
             "- If constrained, use the native constraint API (`n_ieq_constr` / `n_eq_constr`) and write `out['G']` / `out['H']`.",
             "- If n_var varies by benchmark instance/suite, expose n_var as a constructor parameter and document supported values in the class docstring.",
@@ -9298,7 +9109,7 @@ class EmoPyLabMainWindow(QMainWindow):
         param_box_layout.addLayout(backend_form)
 
         self.gpu_scope_label = QLabel(
-            "JAX mode uses the native pymoo+JAX pattern. "
+            "JAX mode uses the native EmoPyLab+JAX pattern."
             "Only problems with JAX-compatible _eval_F implementations can run in this mode."
         )
         self.gpu_scope_label.setStyleSheet(f"color: {AppStyles.TEXT_MUTED};")
@@ -13563,11 +13374,11 @@ class EmoPyLabMainWindow(QMainWindow):
         box.setPlainText("\n".join(lines))
 
     def _append_registry_summary(self) -> None:
-        num_builtin_problems = sum(1 for spec in self.problem_specs.values() if spec.source == "pymoo")
+        num_builtin_problems = sum(1 for spec in self.problem_specs.values() if spec.source in ("builtin", "emopylab"))
         num_local_problems = sum(1 for spec in self.problem_specs.values() if _is_custom_source(spec.source))
-        num_builtin_algorithms = sum(1 for spec in self.algorithm_specs.values() if spec.source == "pymoo")
+        num_builtin_algorithms = sum(1 for spec in self.algorithm_specs.values() if spec.source in ("builtin", "emopylab"))
         num_local_algorithms = sum(1 for spec in self.algorithm_specs.values() if _is_custom_source(spec.source))
-        num_builtin_metrics = sum(1 for spec in self.metric_specs.values() if spec.source == "pymoo")
+        num_builtin_metrics = sum(1 for spec in self.metric_specs.values() if spec.source in ("builtin", "emopylab"))
         num_local_metrics = sum(1 for spec in self.metric_specs.values() if _is_custom_source(spec.source))
         num_ops = {
             category: len(specs)
@@ -13575,14 +13386,14 @@ class EmoPyLabMainWindow(QMainWindow):
         }
 
         self.problem_count_label.setText(
-            f"pymoo: {num_builtin_problems} | local: {num_local_problems}"
+            f"builtin: {num_builtin_problems} | local: {num_local_problems}"
         )
 
         self._append_log(
             "Catalog loaded -> "
-            f"algorithms: {num_builtin_algorithms} pymoo + {num_local_algorithms} local, "
-            f"problems: {num_builtin_problems} pymoo + {num_local_problems} local, "
-            f"metrics: {num_builtin_metrics} pymoo + {num_local_metrics} local, "
+            f"algorithms: {num_builtin_algorithms} builtin + {num_local_algorithms} local, "
+            f"problems: {num_builtin_problems} builtin + {num_local_problems} local, "
+            f"metrics: {num_builtin_metrics} builtin + {num_local_metrics} local, "
             f"operators: cx={num_ops.get('crossover', 0)}, mut={num_ops.get('mutation', 0)}, "
             f"sel={num_ops.get('selection', 0)}, samp={num_ops.get('sampling', 0)}, "
             f"backend-aware={self._backend_aware_loading_enabled()} stage={self._backend_rollout_stage()}"
@@ -13984,7 +13795,7 @@ class EmoPyLabMainWindow(QMainWindow):
                     break
 
         n_var, n_obj = spec.default_n_var, spec.default_n_obj
-        if spec.source == "pymoo" and spec.name.lower() in DEFAULT_PROBLEM_DIMS:
+        if spec.source in ("emopylab", "builtin") and spec.name.lower() in DEFAULT_PROBLEM_DIMS:
             n_var, n_obj = DEFAULT_PROBLEM_DIMS[spec.name.lower()]
         else:
             try:

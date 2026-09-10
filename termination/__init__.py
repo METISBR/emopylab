@@ -1,4 +1,4 @@
-"""EmoPyLab Termination Package (zero-pymoo standalone)."""
+"""EmoPyLab Termination Package."""
 
 from __future__ import annotations
 

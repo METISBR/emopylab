@@ -1,4 +1,4 @@
-"""EmoPyLab Non-Dominated Sorting Package (zero-pymoo standalone)."""
+"""EmoPyLab Non-Dominated Sorting Package."""
 
 from __future__ import annotations
 

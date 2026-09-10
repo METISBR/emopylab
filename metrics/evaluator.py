@@ -102,7 +102,7 @@ def hypervolume(F: np.ndarray,
     Scientific Principle:
     - For M <= 3 (e.g. ZDT, bi/tri-objective DTLZ/WFG): Exact HV is O(N log N) (< 0.1 ms).
     - For M >= 4 (Many-Objective, e.g. MaF, DTLZ 5-15D): Exact HV is #P-Hard (O(N^(M/2))).
-      Utilizes Fast Monte Carlo with Dynamic Sample Pruning (PlatEMO standard).
+      Utilizes Fast Monte Carlo with Dynamic Sample Pruning (scientific benchmark standard).
     """
     F = _as_2d_float(F)
     if F.size == 0:

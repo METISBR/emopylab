@@ -1,8 +1,6 @@
 # emopylab 2026
 """AdaW: evolutionary algorithm with adaptive weights.
 
-Faithful port of the PlatEMO implementation.
-
 Reference:
 M. Li and X. Yao. What weights work for you? Adapting weights for any
 Pareto front shape in decomposition-based evolutionary multiobjective
@@ -48,7 +46,7 @@ def _tche(F: np.ndarray, Z: np.ndarray, W: np.ndarray) -> np.ndarray:
 
 
 def _niche_radius_matrix(objs: np.ndarray) -> tuple[np.ndarray, float]:
-    """Normalized distance matrix and niche radius r (PlatEMO ArchiveUpdate)."""
+    """Normalized distance matrix and niche radius r."""
     n, M = objs.shape
     f_min, f_max = objs.min(axis=0), objs.max(axis=0)
     norm = (objs - f_min[None, :]) / np.maximum(f_max - f_min, _EPS)[None, :]
@@ -61,7 +59,7 @@ def _niche_radius_matrix(objs: np.ndarray) -> tuple[np.ndarray, float]:
 
 
 def archive_update(archive: Population, n_max: int) -> Population:
-    """Niche-based archive truncation (PlatEMO AdaW ArchiveUpdate)."""
+    """Niche-based archive truncation."""
     if len(archive) <= n_max:
         return archive
     objs = np.asarray(archive.get("F"), dtype=float)
@@ -202,7 +200,7 @@ class AdaW(Algorithm):
                 self._weight_update()
         self._set_optimum()
 
-    # -- weight adaptation (PlatEMO WeightUpdate.m) -----------------------
+    # -- weight adaptation ------------------------------------------------
     def _weight_update(self):
         archive = self.ext_archive
         if len(archive) == 0 or len(self.pop) == 0:

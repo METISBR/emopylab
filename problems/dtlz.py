@@ -1,4 +1,4 @@
-"""EmoPyLab Native DTLZ Benchmark Suite in Pure Tensors (Zero-Pymoo)."""
+"""EmoPyLab Native DTLZ Benchmark Suite in Pure Tensors."""
 
 from __future__ import annotations
 

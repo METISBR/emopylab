@@ -35,7 +35,7 @@ If you utilize **EmoPyLab** in your scientific research, algorithms, or benchmar
 ## Changelog & Release Notes
 ### [v1.0.4] — 2026-09-09
 * **Hypervolume Suite**: new `metrics/iqhv.py` (exact QHV-II, Jaszkiewicz COR'18 — now the default checked metric in the GUI), `metrics/r2hv_norm.py` (normalized R2-HV, Wu/Shang/Ishibuchi SSCI'23), `metrics/ndtree_hv.py` (ND-Tree distance-based estimation, Jaszkiewicz/Zielniewicz TEVC'24).
-* **Canonical raw QMC Monte Carlo**: `HV_fast_MC` defaults to direct-space scrambled-Sobol (`mode="raw"`, no PlatEMO rescaling), matching exact IQHV within 0.02–0.04% on MaF6 m=8/10 (NSGA3Local, pop=10, 25k evals); legacy PlatEMO scale kept via `mode="platemo"`.
+* **Canonical raw QMC Monte Carlo**: `HV_fast_MC` defaults to direct-space scrambled-Sobol (`mode="raw"`, no coordinate rescaling), matching exact IQHV within 0.02–0.04% on MaF6 m=8/10 (NSGA-III, pop=10, 25k evals); normalized scale accessible via `mode="normalized"`.
 * **Apple Silicon / GPU fast paths**: torch MPS/CUDA/CPU float32 tiled broadcast + NumPy/MLX fallback, warmup + device-sync benchmark protocol; `tests/test_metrics_acceleration.py` 5 passed / 1 skipped.
 
 ### [v1.0.3] — 2026-09-07
@@ -138,7 +138,7 @@ Empirical research in Multi- and Many-Objective Optimization ($M \ge 2$) has his
 
 ## Hardware Acceleration & Supercomputer Benchmarks (Santos Dumont LNCC)
 
-Empirical throughput and speedup measurements evaluated directly on the **Santos Dumont Supercomputer** (Bull Sequana X1000 GPU partition, **NVIDIA Tesla V100-SXM2-32GB** with CUDA 12.6 / CuPy vs. Intel Xeon Gold 6148), using **real benchmark problems (DTLZ2, MaF1)** and real approximation populations obtained via **NSGA3Local**:
+Empirical throughput and speedup measurements evaluated directly on the **Santos Dumont Supercomputer** (Bull Sequana X1000 GPU partition, **NVIDIA Tesla V100-SXM2-32GB** with CUDA 12.6 / CuPy vs. Intel Xeon Gold 6148), using **real benchmark problems (DTLZ2, MaF1)** and real approximation populations obtained via **NSGA-III**:
 
 ### 1. Distance Metric Scalability (IGD+ on Real Pareto Fronts)
 

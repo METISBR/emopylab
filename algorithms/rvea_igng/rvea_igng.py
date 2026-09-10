@@ -1,8 +1,6 @@
 # emopylab 2026
 """RVEA-iGNG: RVEA based on an improved Growing Neural Gas.
 
-Faithful port of the PlatEMO implementation (written by Qiqi Liu).
-
 Reference:
 Q. Liu, Y. Jin, M. Heiderich, T. Rodemann, and G. Yu. An adaptive
 reference vector-guided evolutionary algorithm using growing neural gas
@@ -54,7 +52,7 @@ def _cosine_matrix(A: np.ndarray, B: np.ndarray) -> np.ndarray:
 
 
 class _GGNet:
-    """State of the improved growing gas net (PlatEMO struct)."""
+    """State of the improved growing gas net."""
 
     def __init__(self):
         self.w = np.zeros((0, 0))
@@ -66,7 +64,7 @@ class _GGNet:
         self.flag = np.zeros(0)
 
 
-# GNG hyperparameters (params struct in PlatEMO)
+# GNG hyperparameters
 _MAXIT = 50
 _L = 50
 _EPS_B = 0.2
@@ -155,7 +153,7 @@ def initialize_gng(V: np.ndarray, F: np.ndarray, N: int, rng: np.random.Generato
 
 
 def _corner_adjust(w: np.ndarray, C: np.ndarray) -> np.ndarray:
-    """Push corner nodes outward and clamp negatives (PlatEMO corner step)."""
+    """Push corner nodes outward and clamp negatives."""
     w = w.copy()
     output = []
     for i in range(w.shape[0]):
@@ -187,7 +185,7 @@ def train_gng(
     gen_flag: Optional[int],
     z_min: np.ndarray,
 ) -> tuple[np.ndarray, _GGNet, Optional[int]]:
-    """PlatEMO TrainGrowingGasNet."""
+    """TrainGrowingGasNet implementation."""
     w, E, C, t = net.w, net.E, net.C, net.t
     nx = net.nx
     asb, flag = net.age_sum_before, net.flag
@@ -272,7 +270,7 @@ def train_gng(
 
 
 def update_archive(pop: Population, archive: Population, max_size: int) -> Population:
-    """IBEA-fitness archive with duplicate/outlier removal (PlatEMO)."""
+    """IBEA-fitness archive with duplicate/outlier removal."""
     merged = Population.merge(archive, pop) if len(archive) else pop
     objs = np.asarray(merged.get("F"), dtype=float)
     _, ia = np.unique(objs, axis=0, return_index=True)

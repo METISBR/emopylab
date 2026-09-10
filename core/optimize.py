@@ -1,4 +1,4 @@
-"""EmoPyLab Optimization Engine and minimize() function (zero-pymoo standalone)."""
+"""EmoPyLab Optimization Engine and minimize() function."""
 
 from __future__ import annotations
 

@@ -222,7 +222,7 @@ class MOCMA(Algorithm):
             penalty = 1e-6 * np.sum((x_model - pop_dec) ** 2, axis=1)
             pop_obj = pop_obj + penalty[:, None]
 
-        # PlatEMO MOCMA.m uses unconstrained NDSort on penalized objectives.
+        # Use unconstrained NDSort on penalized objectives.
         front_no, _ = NDSort(pop_obj, np.inf)
         crowd_dis = np.asarray(CrowdingDistance(pop_obj, front_no), dtype=float).reshape(-1)
 
@@ -257,7 +257,7 @@ class MOCMA(Algorithm):
         survivors = order[:n]
         self.pop = merged[survivors]
 
-        # Q = [parents, children] in PlatEMO. Keep this same index mapping.
+        # Q = [parents, children]. Keep this same index mapping.
         next_nodes: list[_MOCMANode] = []
         for idx_raw in survivors:
             idx = int(idx_raw)

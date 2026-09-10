@@ -1,4 +1,4 @@
-"""EmoPyLab Non-Dominated Sorting and Pareto Front computation (zero-pymoo standalone)."""
+"""EmoPyLab Non-Dominated Sorting and Pareto Front computation."""
 
 from __future__ import annotations
 

@@ -276,12 +276,6 @@ def iter_operator_runtime_candidates(
         _add(f"{module_base}_{suffix}", class_base)
         _add(module_base, f"{class_base}_{suffix}")
 
-        if module_base.startswith("pymoo.operators."):
-            local_base = f"operators.{module_base[len('pymoo.operators.'):]}"
-            _add(f"{local_base}_{suffix}", class_base)
-            _add(f"{local_base}_{suffix}", f"{class_base}_{suffix}")
-            _add(local_base, f"{class_base}_{suffix}")
-            _add(local_base, class_base)
         _add(module_clean, class_clean)
     else:  # CPU backend
         _add(module_base, class_base)
@@ -289,9 +283,6 @@ def iter_operator_runtime_candidates(
         _add(module_clean, class_base)
         _add(module_base, class_clean)
 
-        if module_base.startswith("operators."):
-            pymoo_base = f"pymoo.operators.{module_base[len('operators.'):]}"
-            _add(pymoo_base, class_base)
 
     return candidates
 

@@ -67,7 +67,7 @@ def _population_objectives(pop: Population) -> np.ndarray:
         return np.zeros((0, 0), dtype=float)
     values = pop.get("F") if hasattr(pop, "get") else np.array([getattr(ind, "F", None) for ind in pop])
     if values is None:
-        raise RuntimeError("Population objective matrix 'F' is required by NSGA3Local.")
+        raise RuntimeError("Population objective matrix 'F' is required by NSGA3.")
     return _as_2d(values, n_rows=len(pop), dtype=float)
 
 
@@ -392,7 +392,6 @@ class NSGA3(Algorithm):
         self.opt = filter_optimum(self.pop, least_infeasible=True) if self.pop is not None else None
 
 
-NSGA3Local = NSGA3
 NSGAIII = NSGA3
 
 ALGORITHMS = {
@@ -402,7 +401,6 @@ ALGORITHMS = {
 __all__ = [
     "NSGA3",
     "NSGAIII",
-    "NSGA3Local",
     "ALGORITHM_FLAGS",
     "ALGORITHMS",
     "HyperplaneNormalization",

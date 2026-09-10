@@ -128,7 +128,7 @@ def _update_pbest(pbest: Population, pop: Population) -> Population:
 
 
 class MOPSOCD(Algorithm):
-    """Local PlatEMO-style MOPSO-CD implementation."""
+    """Local MOPSO-CD implementation."""
 
     ALGO_FLAGS = {"multi", "real", "integer"}
     OBJECTIVE_SCOPE = "multi"

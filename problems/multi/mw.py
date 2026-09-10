@@ -151,7 +151,7 @@ class MW3(_MW):
 class MW4(_MW):
     def __init__(self, n_var=None, n_obj=3, **kwargs):
         if n_var is None:
-            n_var = 15  # PlatEMO fidelity: MW uses D = 15 (constant, independent of M)
+            n_var = 15  # Benchmark standard: MW uses D = 15 (constant, independent of M)
         super().__init__(n_var, n_obj, 1)
 
     def _evaluate(self, X, out, *args, **kwargs):
@@ -248,7 +248,7 @@ class MW7(_MW):
 class MW8(_MW):
     def __init__(self, n_var=None, n_obj=3, **kwargs):
         if n_var is None:
-            n_var = 15  # PlatEMO fidelity: MW uses D = 15 (constant, independent of M)
+            n_var = 15  # Benchmark standard: MW uses D = 15 (constant, independent of M)
         super().__init__(n_var, n_obj, 1)
 
     def _evaluate(self, X, out, *args, **kwargs):
@@ -385,7 +385,7 @@ class MW13(_MW):
 class MW14(_MW):
     def __init__(self, n_var=None, n_obj=3, **kwargs):
         if n_var is None:
-            n_var = 15  # PlatEMO fidelity: MW uses D = 15 (constant, independent of M)
+            n_var = 15  # Benchmark standard: MW uses D = 15 (constant, independent of M)
         super().__init__(n_var, n_obj, 1, xu=1.5)
 
     def _evaluate(self, X, out, *args, **kwargs):

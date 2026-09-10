@@ -1,4 +1,4 @@
-"""EmoPyLab Native Constrained and Real-World Benchmark Problems (Zero-Pymoo).
+"""EmoPyLab Native Constrained and Real-World Benchmark Problems.
 
 Includes C-DTLZ, Welded Beam Design, and Pressure Vessel Design.
 """
