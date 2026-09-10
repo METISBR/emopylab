@@ -7,7 +7,7 @@ below refers only to the computed linear subspaces, before boundary repair.
 """
 from __future__ import annotations
 
-from typing import Tuple
+from typing import Tuple, Optional, Union, Any
 import numpy as np
 
 from core.population import Population
@@ -261,3 +261,60 @@ def apd_environmental_selection(
                 del queues[niche]
         break
     return pool[np.asarray(survivors, dtype=int)]
+
+
+def safe_polynomial_mutation(
+    X: np.ndarray,
+    xl: np.ndarray,
+    xu: np.ndarray,
+    eta_m: float = 20.0,
+    prob_m: Optional[float] = None,
+    rng: Optional[Union[np.random.Generator, np.random.RandomState]] = None,
+) -> np.ndarray:
+    """Vectorized polynomial mutation with reflective bound handling."""
+    X = np.asarray(X, dtype=float)
+    xl = np.asarray(xl, dtype=float)
+    xu = np.asarray(xu, dtype=float)
+    N, D = X.shape
+    if prob_m is None:
+        prob_m = 1.0 / max(D, 1)
+
+    if rng is None:
+        rng = np.random.default_rng()
+
+    if hasattr(rng, "random"):
+        rand_m = rng.random((N, D))
+        u = rng.random((N, D))
+    elif hasattr(rng, "uniform"):
+        rand_m = rng.uniform(0.0, 1.0, size=(N, D))
+        u = rng.uniform(0.0, 1.0, size=(N, D))
+    else:
+        rand_m = np.random.random((N, D))
+        u = np.random.random((N, D))
+
+    mutate_mask = rand_m < prob_m
+    if not np.any(mutate_mask):
+        return X.copy()
+
+    X_mut = X.copy()
+    diff = xu - xl
+    safe_diff = np.where(diff > 0, diff, 1.0)
+
+    delta1 = np.clip((X - xl) / safe_diff, 0.0, 1.0)
+    delta2 = np.clip((xu - X) / safe_diff, 0.0, 1.0)
+
+    mut_pow = 1.0 / (eta_m + 1.0)
+
+    xy_left = 1.0 - delta1
+    val_left = 2.0 * u + (1.0 - 2.0 * u) * (np.power(np.maximum(xy_left, 0.0), eta_m + 1.0))
+    delta_q_left = np.power(np.maximum(val_left, 0.0), mut_pow) - 1.0
+
+    xy_right = 1.0 - delta2
+    val_right = 2.0 * (1.0 - u) + 2.0 * (u - 0.5) * (np.power(np.maximum(xy_right, 0.0), eta_m + 1.0))
+    delta_q_right = 1.0 - np.power(np.maximum(val_right, 0.0), mut_pow)
+
+    delta_q = np.where(u <= 0.5, delta_q_left, delta_q_right)
+    mutated = X + delta_q * safe_diff
+    reflected = reflective_clamp(mutated, xl, xu)
+    X_mut[mutate_mask] = reflected[mutate_mask]
+    return X_mut
