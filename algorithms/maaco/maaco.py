@@ -56,7 +56,7 @@ import numpy as np
 
 from core.algorithm import Algorithm
 from core.population import Population
-from operators.sampling.lhs import LHS
+from operators.sampling.lhs import LatinHypercubeSampling
 from operators.survival.rank_and_crowding.metrics import calc_crowding_distance
 from util.nds.non_dominated_sorting import NonDominatedSorting
 from util.ref_dirs import get_reference_directions
@@ -276,7 +276,7 @@ class MaACO(Algorithm):
             self.pop_size = int(self.ref_dirs.shape[0])
 
     def _initialize_infill(self) -> Population:
-        return LHS().do(self.problem, self.pop_size)
+        return LatinHypercubeSampling().do(self.problem, self.pop_size, random_state=self.random_state)
 
     def _initialize_advance(self, infills=None, **kwargs):
         self.pop = infills

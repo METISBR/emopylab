@@ -12,7 +12,7 @@ from core.population import Population
 from core.survival import Survival
 from operators.crossover.sbx import SBX
 from operators.mutation.pm import PolynomialMutation
-from operators.sampling.rnd import FloatRandomSampling
+from operators.sampling.lhs import LatinHypercubeSampling
 from operators.selection.tournament import TournamentSelection, compare
 from operators.survival.rank_and_crowding.classes import RankAndCrowding
 from util.nds.non_dominated_sorting import NonDominatedSorting
@@ -125,7 +125,7 @@ class NSGA2(Algorithm):
         super().__init__(**kwargs)
         self.pop_size = int(max(2, pop_size))
         if sampling is None:
-            self.sampling = FloatRandomSampling()
+            self.sampling = LatinHypercubeSampling()
         elif isinstance(sampling, (np.ndarray, Population, list)):
             from core.sampling import Sampling
             class _StaticSampling(Sampling):

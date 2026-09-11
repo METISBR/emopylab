@@ -58,11 +58,77 @@ def certify_empirical_descent(J: np.ndarray, direction: np.ndarray) -> np.ndarra
     d = np.asarray(to_numpy(direction), dtype=float)
     if d.shape != (J.shape[1],) or not np.all(np.isfinite(d)):
         raise ValueError("direction must be finite and match J columns")
-    norm_d = np.linalg.norm(d)
+    norm_d = float(np.linalg.norm(d))
+    if norm_d <= 1e-14:
+        return np.zeros_like(d)
     margin = 32 * np.finfo(float).eps * np.linalg.norm(J, axis=1) * norm_d
-    if norm_d == 0 or not np.all(J @ d < -margin):
+    if not np.all(J @ d < -margin):
         return np.zeros_like(d)
     return d.copy()
+
+
+def certified_projected_normal_descent(
+    J: np.ndarray,
+    P_N: np.ndarray,
+    d_kkt: np.ndarray,
+    delta_de: np.ndarray,
+    scale_normal_step: bool = True,
+) -> np.ndarray:
+    """Compute normal displacement P_N d_kkt with strict descent certification.
+
+    Proposition 2 (TC-MaOEA 2.0): If P_N d_kkt produces objective ascent on any
+    fitted objective (J P_N d_kkt >= 0), it is immediately suppressed to zero,
+    preventing catastrophic divergence from the manifold.
+    """
+    J = _matrix(J, "J")
+    P_N = _matrix(P_N, "P_N")
+    d_kkt = np.asarray(to_numpy(d_kkt), dtype=float)
+    pn_dkkt = P_N @ d_kkt
+    norm_pn = float(np.linalg.norm(pn_dkkt))
+    if norm_pn <= 1e-14:
+        return np.zeros_like(pn_dkkt)
+
+    # Check strict descent on fitted Jacobian
+    proj_margin = 1e-8 * float(np.linalg.norm(J)) * norm_pn
+    if np.any(J @ pn_dkkt >= -proj_margin):
+        # Objective ascent detected: strictly suppress to zero
+        return np.zeros_like(pn_dkkt)
+
+    mean_de = float(np.mean(np.linalg.norm(delta_de, axis=1))) if delta_de.size else 0.0
+    if not scale_normal_step or mean_de <= 1e-14:
+        scale = 1.0
+    else:
+        scale = min(1.0, mean_de / (norm_pn + 1e-12))
+    return scale * pn_dkkt
+
+
+def stochastic_normal_diffusion(
+    P_N: np.ndarray,
+    n_samples: int,
+    xl: np.ndarray,
+    xu: np.ndarray,
+    sigma_n: float,
+    rng: Optional[Union[np.random.Generator, np.random.RandomState]] = None,
+) -> np.ndarray:
+    """Generate stochastic Gaussian diffusion strictly confined to the normal subspace N(M).
+
+    Drives distance-related variables towards the manifold when J is flat or uncertain.
+    """
+    P_N = _matrix(P_N, "P_N")
+    D = P_N.shape[0]
+    xl = np.asarray(to_numpy(xl), dtype=float)
+    xu = np.asarray(to_numpy(xu), dtype=float)
+    span = np.maximum(xu - xl, 1e-6)
+
+    generator = rng if rng is not None else np.random.default_rng()
+    if hasattr(generator, "normal"):
+        raw = generator.normal(0.0, 1.0, size=(n_samples, D))
+    else:
+        raw = generator.randn(n_samples, D)
+
+    # Project noise into normal subspace: xi in N(M)
+    proj_noise = raw @ P_N.T
+    return float(sigma_n) * span[None, :] * proj_noise
 
 
 def solve_kkt_simplex_qp(
@@ -263,6 +329,130 @@ def apd_environmental_selection(
     return pool[np.asarray(survivors, dtype=int)]
 
 
+def epr_environmental_selection(
+    pool: Population,
+    W_adapt: np.ndarray,
+    z_min: np.ndarray,
+    z_max: np.ndarray,
+    n_survive: int,
+    t_ratio: float,
+    alpha: float = 2.0,
+) -> Population:
+    """Extreme-Preserving Reference-Vector Environmental Selection (EPR-Selection).
+
+    Theoretical Advancements over standard APD:
+    1. Unconditional Extreme Retention: Vértices extremos da frente são identificados
+       via Achievement Scalarizing Functions (ASF) e protegidos incondicionalmente,
+       ancorando as fronteiras do hipervolume e eliminando colapso de borda.
+    2. Curvature-Invariant Score: Decomposição em d_parallel e d_perp normalizada por
+       hiperplano elimina a penalidade radial ||F|| de frentes convexas (ex: ZDT1).
+    3. Niche-Occupancy Balancing: Alocação gulosa prioriza nichos com menor contagem,
+       impedindo aglomerações e garantindo espalhamento uniforme.
+    """
+    if n_survive < 0:
+        raise ValueError("n_survive must be nonnegative")
+    if len(pool) <= n_survive:
+        return pool
+    if n_survive == 0:
+        return pool[:0]
+
+    F = _matrix(population_matrix(pool, "F"), "F")
+    N, M = F.shape
+    W = _matrix(W_adapt, "W_adapt")
+    if len(W) == 0 or W.shape[1] != M:
+        raise ValueError("At least one matching reference direction required")
+
+    norms_w = np.linalg.norm(W, axis=1)
+    if np.any(norms_w == 0):
+        raise ValueError("Reference directions must be nonzero")
+    W = W / norms_w[:, None]
+
+    z_min = np.asarray(z_min, dtype=float)
+    z_max = np.asarray(z_max, dtype=float)
+
+    # 1. Non-dominated sorting and Unconditional Extreme Point Retention via ASF on Front 0
+    fronts = _nds_fast(F) if _nds_fast is not None else NonDominatedSorting().do(F)
+    f0 = fronts[0]
+    extreme_indices: list[int] = []
+    for j in range(M):
+        w_asf = np.full(M, 1e-6)
+        w_asf[j] = 1.0
+        diff = np.maximum(F[f0] - z_min[None, :], 0.0)
+        asf_values = np.max(diff / w_asf[None, :], axis=1)
+        best_f0_idx = int(np.argmin(asf_values))
+        best_idx = int(f0[best_f0_idx])
+        if best_idx not in extreme_indices:
+            extreme_indices.append(best_idx)
+
+    # 2. Intercept Hyperplane Estimation for True Nadir Scaling
+    span = np.maximum(z_max - z_min, 1e-12)
+    if len(extreme_indices) == M:
+        try:
+            E = F[extreme_indices] - z_min[None, :]
+            # Solve E @ a = 1
+            a = np.linalg.solve(E, np.ones(M))
+            if np.all(a > 1e-6) and np.all(np.isfinite(a)):
+                span = np.maximum(1.0 / a, 1e-6)
+        except Exception:
+            pass
+
+    F_norm = np.maximum(F - z_min[None, :], 0.0) / span[None, :]
+    norm_f = np.linalg.norm(F_norm, axis=1)
+
+    # 3. Reference Direction Association
+    inner_prod = F_norm @ W.T
+    cos_theta = np.clip(inner_prod / np.maximum(norm_f[:, None], 1e-12), -1.0, 1.0)
+    theta = np.arccos(cos_theta)
+    assoc = np.argmin(theta, axis=1)
+
+    # Reference vector neighborhood angle
+    angles = np.arccos(np.clip(W @ W.T, -1.0, 1.0))
+    np.fill_diagonal(angles, np.inf)
+    gamma = np.maximum(np.min(angles, axis=1), 1e-6) if len(W) > 1 else np.array([np.pi])
+
+    # 4. Curvature-Invariant Niche Metric (Psi)
+    # d_parallel along associated reference vector
+    assoc_w = W[assoc]
+    d_parallel = np.sum(F_norm * assoc_w, axis=1)
+    perp_vec = F_norm - d_parallel[:, None] * assoc_w
+    d_perp = np.linalg.norm(perp_vec, axis=1)
+
+    tau_ratio = float(np.clip(t_ratio, 0.0, 1.0))
+    scores = d_parallel + float(M) * (tau_ratio ** alpha) * (d_perp / gamma[assoc])
+
+    survivors: list[int] = []
+    # Retain extreme vertices unconditionally
+    for e_idx in extreme_indices:
+        if len(survivors) < n_survive:
+            survivors.append(e_idx)
+
+    for front in fronts:
+        # Candidates in this front not already added
+        unselected = [idx for idx in front if idx not in survivors]
+        if len(survivors) + len(unselected) <= n_survive:
+            survivors.extend(unselected)
+            if len(survivors) == n_survive:
+                break
+            continue
+
+        # Split critical front with empty/least-occupied niche priority
+        counts = np.bincount(assoc[survivors], minlength=len(W)) if survivors else np.zeros(len(W), dtype=int)
+        queues: dict[int, list[int]] = {}
+        for idx in sorted(unselected, key=lambda i: (scores[i], i)):
+            queues.setdefault(int(assoc[idx]), []).append(int(idx))
+
+        while len(survivors) < n_survive and queues:
+            # Pick least-occupied niche, breaking ties with best score in niche
+            niche = min(queues, key=lambda k: (counts[k], scores[queues[k][0]], k))
+            survivors.append(queues[niche].pop(0))
+            counts[niche] += 1
+            if not queues[niche]:
+                del queues[niche]
+        break
+
+    return pool[np.asarray(survivors, dtype=int)]
+
+
 def safe_polynomial_mutation(
     X: np.ndarray,
     xl: np.ndarray,
@@ -315,6 +505,6 @@ def safe_polynomial_mutation(
 
     delta_q = np.where(u <= 0.5, delta_q_left, delta_q_right)
     mutated = X + delta_q * safe_diff
-    reflected = reflective_clamp(mutated, xl, xu)
-    X_mut[mutate_mask] = reflected[mutate_mask]
+    clipped = np.clip(mutated, xl, xu)
+    X_mut[mutate_mask] = clipped[mutate_mask]
     return X_mut

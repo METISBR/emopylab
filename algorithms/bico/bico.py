@@ -7,7 +7,7 @@ Z. Liu, B. Wang, and K. Tang. Handling constrained multiobjective optimization p
 
 from __future__ import annotations
 
-from algorithms.moo.nsga2 import NSGA2
+from algorithms.nsga2 import NSGA2
 
 
 ALGORITHM_FLAGS = {'BiCo': {'binary', 'constrained', 'integer', 'label', 'multi', 'permutation', 'real'}}

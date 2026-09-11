@@ -25,8 +25,8 @@ from typing import Optional, Tuple
 
 from util.array_backend import xp as np
 
-from algorithms.moo.nsga3 import ReferenceDirectionSurvival, associate_to_niches
-from algorithms.moo.sms import cv_and_dom_tournament
+from algorithms.nsga3 import ReferenceDirectionSurvival, associate_to_niches
+from algorithms.sms import cv_and_dom_tournament
 from core.algorithm import Algorithm
 from core.duplicate import DefaultDuplicateElimination
 from core.mating import Mating

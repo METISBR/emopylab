@@ -7,7 +7,7 @@ C. Sun, Y. Tian, S. Shao, S. Yang, and X. Zhang. An adaptive multi- granular Par
 
 from __future__ import annotations
 
-from algorithms.moo.nsga2 import NSGA2
+from algorithms.nsga2 import NSGA2
 
 
 ALGORITHM_FLAGS = {'AMGPSL': {'binary', 'constrained', 'integer', 'large', 'multi', 'real', 'sparse'}}

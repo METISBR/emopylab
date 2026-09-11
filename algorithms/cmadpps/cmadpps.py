@@ -7,7 +7,7 @@ F. Ming, W. Gong, S. Li, L. Wang, and Z. Liao. Handling constrained many-objecti
 
 from __future__ import annotations
 
-from algorithms.moo.nsga2 import NSGA2
+from algorithms.nsga2 import NSGA2
 
 
 ALGORITHM_FLAGS = {'CMaDPPs': {'binary', 'constrained', 'integer', 'label', 'many', 'multi', 'permutation', 'real'}}

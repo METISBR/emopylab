@@ -23,7 +23,7 @@ from typing import Optional, Tuple
 
 from util.array_backend import xp as np
 
-from algorithms.moo.sms import cv_and_dom_tournament
+from algorithms.sms import cv_and_dom_tournament
 from core.algorithm import Algorithm
 from core.mating import Mating
 from core.population import Population
@@ -54,19 +54,13 @@ def _force_cpu_backend(algorithm, reason: str) -> None:
     algorithm.backend_state = state
 
 
-def _lhs(n_samples: int, n_dim: int, rng: np.random.Generator) -> np.ndarray:
+def _uniform_sample(n_samples: int, n_dim: int, rng: np.random.Generator) -> np.ndarray:
     """
-    Lightweight Latin Hypercube Sampling in [0, 1]^n_dim.
+    Uniform random sampling in [0, 1]^n_dim.
     """
     if n_samples <= 0:
         return np.empty((0, n_dim), dtype=float)
-    X = np.empty((n_samples, n_dim), dtype=float)
-    inv_n = 1.0 / n_samples
-    base = np.arange(n_samples, dtype=float) * inv_n
-    for j in range(n_dim):
-        perm = rng.permutation(n_samples)
-        X[:, j] = base[perm] + rng.random(n_samples) * inv_n
-    return X
+    return rng.random((n_samples, n_dim))
 
 
 def _radbas(z: np.ndarray) -> np.ndarray:
@@ -224,7 +218,7 @@ class SAMOEA_TL2M(Algorithm):
         n_var = self.problem.n_var
         ni = self.initial_sample_factor * n_var + self.initial_sample_offset
         ni = int(max(ni, self.pop_size))
-        unit = _lhs(ni, n_var, self.random_state)
+        unit = _uniform_sample(ni, n_var, self.random_state)
         X = self.problem.xl + unit * (self.problem.xu - self.problem.xl)
         return Population.new("X", X)
 

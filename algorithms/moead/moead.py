@@ -9,7 +9,7 @@ from core.algorithm import Algorithm
 from core.population import Population
 from operators.crossover.sbx import SBX
 from operators.mutation.pm import PolynomialMutation
-from operators.sampling.rnd import FloatRandomSampling
+from operators.sampling.lhs import LatinHypercubeSampling
 from util.ref_dirs import get_reference_directions
 
 __all__ = [
@@ -38,7 +38,7 @@ class MOEAD(Algorithm):
         self.ref_dirs = ref_dirs
         self.n_neighbors = int(n_neighbors)
         self.prob_neighbor_mating = float(prob_neighbor_mating)
-        self.sampling = sampling or FloatRandomSampling()
+        self.sampling = sampling or LatinHypercubeSampling()
         self.crossover = crossover or SBX(prob=1.0, eta=20)
         self.mutation = mutation or PolynomialMutation(eta=20)
         self.decomposition = decomposition

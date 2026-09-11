@@ -12,7 +12,7 @@ Many-objective evolutionary algorithm (m > 3) combining:
   5. SDR-based front ranking for higher selection pressure at m ≥ 4
   6. Two-archive: nd_archive (diversity) + conv_archive (Tchebycheff per niche)
   7. Tchebycheff blending into SDE drift direction for m > 4
-  8. Latin Hypercube Sampling initialisation
+  8. Uniform random initialization
   9. Q-learning for SBX η selection
  10. CMA-style auto-calibration of path/covariance hyperparameters
  11. EEJ (Evolutionary Ensemble Jacobian): Jacobiano multi-objetivo global
@@ -85,11 +85,12 @@ def _to_device(x: Any, use_gpu: bool = False) -> Any:
 from core.algorithm import Algorithm
 from core.population import Population
 from core.duplicate import DefaultDuplicateElimination
-from algorithms.moo.sms import cv_and_dom_tournament
+from algorithms.sms import cv_and_dom_tournament
 from core.mating import Mating
 from operators.selection.tournament import TournamentSelection
 from operators.crossover.sbx import SBX
 from operators.mutation.pm import PolynomialMutation
+from operators.sampling.lhs import LatinHypercubeSampling
 from util.nds.non_dominated_sorting import NonDominatedSorting
 from util.dominator import Dominator
 
@@ -98,22 +99,6 @@ ALGORITHM_FLAGS = {
 }
 
 
-# ---------------------------------------------------------------------------
-# [NOVO] Latin Hypercube Sampling para inicialização (melhora cobertura
-# inicial do espaço de decisão vs. amostragem uniforme aleatória pura).
-# Referência: McKay et al. 1979; amplamente adotado em MaOEA recentes.
-# ---------------------------------------------------------------------------
-def _latin_hypercube_sample(rng: Any, n: int, d: int, xp: Any = np) -> np.ndarray:
-    """
-    Retorna matriz (n x d) com valores em [0, 1] via LHS.
-    """
-    cut = xp.linspace(0.0, 1.0, n + 1)
-    u = xp.asarray(rng.random((n, d)))
-    points = xp.empty((n, d), dtype=float)
-    for j in range(d):
-        perm = xp.asarray(rng.permutation(n))
-        points[:, j] = cut[perm] + u[:, j] * (cut[1] - cut[0])
-    return xp.clip(points, 0.0, 1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -545,9 +530,6 @@ class SSW_RDPA(Algorithm):
         sdr_sigma: float = 0.02,
         # Ativar SDR no lugar de Pareto puro em _hybrid_survival (recomendado m>3)
         use_sdr: bool = True,
-        # Inicialização por LHS em vez de uniforme aleatória.
-        # Ref: McKay 1979; melhora cobertura e convergência inicial.
-        use_lhs: bool = True,
         # Dois arquivos separados: convergência (conv_archive) + diversidade (pop).
         # A sobrevivência faz swap explícito quando arquivo de convergência evolui.
         # Ref: Wang et al. 2015 (Two-archive); MaOEA-MS (ScienceDirect 2022).
@@ -628,7 +610,6 @@ class SSW_RDPA(Algorithm):
         self.theta_adapt = bool(theta_adapt)
         self.sdr_sigma = float(np.clip(sdr_sigma, 0.0, 0.15))
         self.use_sdr = bool(use_sdr)
-        self.use_lhs = bool(use_lhs)
         self.use_two_archive = bool(use_two_archive)
         self.conv_archive_frac = float(np.clip(conv_archive_frac, 0.05, 0.40))
         self.prob_neighbor_mating = float(np.clip(prob_neighbor_mating, 0.0, 1.0))
@@ -831,18 +812,16 @@ class SSW_RDPA(Algorithm):
     # ------------------------------------------------------------------
     def _initialize_infill(self):
         xl, xu = self.problem.xl, self.problem.xu
-        n_var = self.problem.n_var
 
         self.domain_scale = float(np.mean(xu - xl))
         self.sigma_min = 5e-5 * self.domain_scale
         self.sigma_max = 0.35 * self.domain_scale
 
-        if self.use_lhs:
-            unit_samples = _latin_hypercube_sample(self.random_state, self.pop_size, n_var, xp=self.xp)
-            X = xl + _to_numpy(unit_samples) * (xu - xl)
-        else:
-            X = xl + self.random_state.random((self.pop_size, n_var)) * (xu - xl)
-        pop = Population.new("X", X)
+        pop = LatinHypercubeSampling().do(
+            self.problem,
+            self.pop_size,
+            random_state=self.random_state,
+        )
         self._attach_initial_state(pop)
         return pop
 

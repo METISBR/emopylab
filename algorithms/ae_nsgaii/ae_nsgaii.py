@@ -7,7 +7,7 @@ L. Feng, W. Zhou, W. Liu, Y. S. Ong, and K. C. Tan. Solving dynamic multiobjecti
 
 from __future__ import annotations
 
-from algorithms.moo.nsga2 import NSGA2
+from algorithms.nsga2 import NSGA2
 
 
 ALGORITHM_FLAGS = {'AENSGAII': {'binary', 'constrained', 'dynamic', 'integer', 'label', 'multi', 'permutation', 'real'}}

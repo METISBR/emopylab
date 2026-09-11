@@ -7,7 +7,7 @@ K. Yu, D. Zhang, J. Liang, K. Chen, C. Yue, K. Qiao, and L. Wang. A correlation-
 
 from __future__ import annotations
 
-from algorithms.moo.nsga2 import NSGA2
+from algorithms.nsga2 import NSGA2
 
 
 ALGORITHM_FLAGS = {'CGLP': {'binary', 'dynamic', 'integer', 'label', 'multi', 'permutation', 'real'}}

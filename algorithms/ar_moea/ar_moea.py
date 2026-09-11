@@ -7,7 +7,7 @@ Y. Tian, R. Cheng, X. Zhang, and Y. Jin. An indicator-based multiobjective evolu
 
 from __future__ import annotations
 
-from algorithms.moo.nsga2 import NSGA2
+from algorithms.nsga2 import NSGA2
 
 
 ALGORITHM_FLAGS = {'ARMOEA': {'binary', 'constrained', 'integer', 'label', 'many', 'multi', 'permutation', 'real'}}

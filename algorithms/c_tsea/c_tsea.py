@@ -7,7 +7,7 @@ F. Ming, W. Gong, H. Zhen, S. Li, L. Wang, and Z. Liao. A simple two-stage evolu
 
 from __future__ import annotations
 
-from algorithms.moo.nsga2 import NSGA2
+from algorithms.nsga2 import NSGA2
 
 
 ALGORITHM_FLAGS = {'CTSEA': {'binary', 'constrained', 'integer', 'label', 'many', 'multi', 'permutation', 'real'}}

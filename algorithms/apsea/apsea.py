@@ -7,7 +7,7 @@ Y. Tian, R. Wang, Y. Zhang, and X. Zhang. Adaptive population sizing for multi-p
 
 from __future__ import annotations
 
-from algorithms.moo.nsga2 import NSGA2
+from algorithms.nsga2 import NSGA2
 
 
 ALGORITHM_FLAGS = {'APSEA': {'binary', 'constrained', 'integer', 'label', 'multi', 'permutation', 'real'}}

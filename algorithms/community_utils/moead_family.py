@@ -8,9 +8,9 @@ import math
 
 import numpy as np
 from core.population import Population
+from operators.sampling.lhs import LatinHypercubeSampling
 from operators.sampling.rnd import (
     BinaryRandomSampling,
-    FloatRandomSampling,
     IntegerRandomSampling,
 )
 from util.optimum import filter_optimum
@@ -47,7 +47,7 @@ def default_sampling(problem):
         return BinaryRandomSampling()
     if vtype in (int, np.int32, np.int64):
         return IntegerRandomSampling()
-    return FloatRandomSampling()
+    return LatinHypercubeSampling()
 
 
 def sample_initial(problem, n, sampling=None, rng=None):

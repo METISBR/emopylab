@@ -53,9 +53,17 @@ def _tensor_mc_core(pts: np.ndarray, lo: np.ndarray, hi: np.ndarray,
         except Exception:
             samples = None
     if samples is None:
-        rng = np.random.default_rng(seed)
+        from operators.sampling.lhs import _latin_hypercube_numpy
+        try:
+            from scipy.stats import qmc
+            sampler = qmc.LatinHypercube(d=M, scramble=True, seed=seed)
+            unit = sampler.random(n=sample_num)
+        except Exception:
+            rng = np.random.default_rng(seed)
+            unit = _latin_hypercube_numpy(sample_num, M, scramble=True, rng=rng)
+        span = (hi - lo).astype(np.float64)
         samples = np.ascontiguousarray(
-            rng.uniform(low=lo, high=hi, size=(sample_num, M)).astype(np.float32)
+            (lo.astype(np.float64) + unit.astype(np.float64) * span).astype(np.float32)
         )
 
     pts_f32 = np.ascontiguousarray(pts, dtype=np.float32)

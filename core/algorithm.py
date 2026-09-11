@@ -72,16 +72,15 @@ def _default_filter_optimum(pop: Population, least_infeasible: bool = False):
 def default_termination(problem: Any):
     """Default termination criteria."""
     try:
-        from termination.default import DefaultMultiObjectiveTermination, DefaultSingleObjectiveTermination
+        from core.termination import (
+            DefaultMultiObjectiveTermination,
+            DefaultSingleObjectiveTermination,
+        )
         if problem.n_obj > 1:
             return DefaultMultiObjectiveTermination()
         else:
             return DefaultSingleObjectiveTermination()
     except Exception:
-        try:
-            from core.termination import default_termination as term_default
-            return term_default(problem)
-        except Exception:
             class _FallbackTermination:
                 def __init__(self, n_max_gen: int = 100) -> None:
                     self.n_max_gen = n_max_gen
@@ -114,11 +113,7 @@ def _resolve_termination(term: Any, problem: Any):
             return get_termination(term)
         except Exception:
             pass
-    try:
-        from util.misc import termination_from_tuple
-        return termination_from_tuple(term)
-    except Exception:
-        return term
+    return term
 
 class Algorithm:
     """Base class for population-based optimization algorithms in EmoPyLab."""
@@ -233,14 +228,10 @@ class Algorithm:
 
         if self.display is None:
             try:
-                from util.display.display import Display
-                self.display = Display(self.output, verbose=verbose, progress=progress)
+                from util.display.multi import MultiObjectiveDisplay
+                self.display = MultiObjectiveDisplay()
             except Exception:
-                try:
-                    from util.display.multi import MultiObjectiveDisplay
-                    self.display = MultiObjectiveDisplay()
-                except Exception:
-                    self.display = _SimpleDisplay(self.output, verbose=verbose, progress=progress)
+                self.display = _SimpleDisplay(self.output, verbose=verbose, progress=progress)
 
         self._setup(problem, **kwargs)
         return self

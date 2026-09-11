@@ -13,9 +13,9 @@ import math
 import numpy as np
 from core.algorithm import Algorithm
 from core.population import Population
+from operators.sampling.lhs import LatinHypercubeSampling
 from operators.sampling.rnd import (
     BinaryRandomSampling,
-    FloatRandomSampling,
     IntegerRandomSampling,
     PermutationRandomSampling,
 )
@@ -98,7 +98,7 @@ class MOCell(Algorithm):
             return IntegerRandomSampling()
         # best-effort: if permutation-like bounds absent and variable type indicates int with unique domain,
         # users can inject custom sampling via framework config; default remains robust.
-        return FloatRandomSampling()
+        return LatinHypercubeSampling()
 
     def _setup(self, problem, **kwargs):
         self.neighbor = _build_moore_neighborhood(self.pop_size)

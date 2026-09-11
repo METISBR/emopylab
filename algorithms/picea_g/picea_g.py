@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from algorithms.moo.nsga2 import NSGA2
+from algorithms.nsga2 import NSGA2
 
 
 ALGORITHM_FLAGS = {'PICEAg': {'binary', 'integer', 'label', 'many', 'multi', 'permutation', 'real'}}

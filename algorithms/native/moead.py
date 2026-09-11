@@ -10,7 +10,7 @@ import numpy as np
 from core.engine.runner import OptimizationResult
 from core.operators.crossover.sbx import sbx_crossover_tensor
 from core.operators.mutation.polynomial import polynomial_mutation_tensor
-from core.operators.sampling.lhs import latin_hypercube_sampling
+from operators.sampling.lhs import LatinHypercubeSampling
 from core.tensor.backend import get_array_module, index_tensor, init_tensor_backend, to_device, to_numpy
 from core.tensor.population import TensorPopulation
 from core.tensor.problem import TensorProblem
@@ -62,8 +62,12 @@ class NativeMOEAD:
         dist_W = np.linalg.norm(W[:, None, :] - W[None, :, :], axis=2)
         neighborhoods = np.argsort(dist_W, axis=1)[:, : min(self.n_neighbors, N)]
 
-        # 2. Initialize Population via LHS
-        X_init = latin_hypercube_sampling(N, D, problem.xl_cpu, problem.xu_cpu, seed=seed)
+        # 2. Initialize population with Latin Hypercube sampling
+        X_init = to_device(LatinHypercubeSampling().sample_array(
+            problem,
+            N,
+            random_state=np.random.default_rng(seed),
+        ))
         F_init, G_init = problem.evaluate(X_init)
         pop = TensorPopulation(N, D, M, problem.n_constr, X=X_init, F=F_init, G=G_init)
 

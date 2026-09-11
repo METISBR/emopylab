@@ -10,7 +10,7 @@ from core.population import Population
 from core.survival import Survival
 from operators.crossover.sbx import SBX
 from operators.mutation.pm import PolynomialMutation
-from operators.sampling.rnd import FloatRandomSampling
+from operators.sampling.lhs import LatinHypercubeSampling
 from operators.selection.tournament import TournamentSelection, compare
 from util.nds.non_dominated_sorting import NonDominatedSorting
 
@@ -110,7 +110,7 @@ class SMSEMOA(Algorithm):
     ) -> None:
         super().__init__(**kwargs)
         self.pop_size = int(pop_size)
-        self.sampling = sampling or FloatRandomSampling()
+        self.sampling = sampling or LatinHypercubeSampling()
         self.selection = selection or TournamentSelection(func_comp=cv_and_dom_tournament)
         self.crossover = crossover or SBX(prob=0.9, eta=15)
         self.mutation = mutation or PolynomialMutation(eta=20)

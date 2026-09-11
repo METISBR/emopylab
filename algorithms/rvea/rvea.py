@@ -12,7 +12,7 @@ from core.population import Population
 from core.survival import Survival
 from operators.crossover.sbx import SBX
 from operators.mutation.pm import PolynomialMutation
-from operators.sampling.rnd import FloatRandomSampling
+from operators.sampling.lhs import LatinHypercubeSampling
 from util.ref_dirs import get_reference_directions
 
 __all__ = [
@@ -122,7 +122,7 @@ class RVEA(Algorithm):
         self.pop_size = pop_size
         self.alpha = float(alpha)
         if sampling is None:
-            self.sampling = FloatRandomSampling()
+            self.sampling = LatinHypercubeSampling()
         elif isinstance(sampling, (np.ndarray, Population, list)):
             from core.sampling import Sampling
             class _StaticSampling(Sampling):
@@ -138,7 +138,7 @@ class RVEA(Algorithm):
         else:
             self.sampling = sampling
         from operators.selection.tournament import TournamentSelection
-        from algorithms.moo.sms import cv_and_dom_tournament
+        from algorithms.sms import cv_and_dom_tournament
         self.selection = selection if selection is not None else TournamentSelection(func_comp=cv_and_dom_tournament)
         self.crossover = crossover or SBX(prob=0.9, eta=15)
         self.mutation = mutation or PolynomialMutation(eta=20)
@@ -176,7 +176,7 @@ class RVEA(Algorithm):
 
         if self.selection is None:
             from operators.selection.tournament import TournamentSelection
-            from algorithms.moo.sms import cv_and_dom_tournament
+            from algorithms.sms import cv_and_dom_tournament
             self.selection = TournamentSelection(func_comp=cv_and_dom_tournament)
 
         if self.survival is None:

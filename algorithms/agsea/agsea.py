@@ -7,7 +7,7 @@ S. Shao, Y. Tian, and X. Zhang. Deep reinforcement learning assisted automated g
 
 from __future__ import annotations
 
-from algorithms.moo.nsga2 import NSGA2
+from algorithms.nsga2 import NSGA2
 
 
 ALGORITHM_FLAGS = {'AGSEA': {'binary', 'constrained', 'integer', 'large', 'multi', 'real', 'sparse'}}

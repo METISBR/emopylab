@@ -7,7 +7,7 @@ Y. Li, X. Feng, and H. Yu. Solving high-dimensional expensive multiobjective opt
 
 from __future__ import annotations
 
-from algorithms.moo.nsga2 import NSGA2
+from algorithms.nsga2 import NSGA2
 
 
 ALGORITHM_FLAGS = {'AVGSAEA': {'expensive', 'integer', 'large', 'multi', 'real'}}

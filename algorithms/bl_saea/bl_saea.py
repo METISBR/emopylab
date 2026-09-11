@@ -7,7 +7,7 @@ H. Jiang, K. Qiu, Y. Tian, X. Zhang, and Y. Jin. Efficient surrogate modeling me
 
 from __future__ import annotations
 
-from algorithms.moo.nsga2 import NSGA2
+from algorithms.nsga2 import NSGA2
 
 
 ALGORITHM_FLAGS = {'BLSAEA': {'bilevel', 'multi', 'real'}}

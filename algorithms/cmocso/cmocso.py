@@ -7,7 +7,7 @@ F. Ming, W. Gong, D. Li, L. Wang, and L. Gao. A competitive and cooperative swar
 
 from __future__ import annotations
 
-from algorithms.moo.nsga2 import NSGA2
+from algorithms.nsga2 import NSGA2
 
 
 ALGORITHM_FLAGS = {'CMOCSO': {'constrained', 'large', 'multi', 'real'}}

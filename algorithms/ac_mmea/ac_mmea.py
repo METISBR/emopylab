@@ -7,7 +7,7 @@ X. Wang, T. Zheng, and Y. Jin. Adaptive merging and coordinated offspring genera
 
 from __future__ import annotations
 
-from algorithms.moo.nsga2 import NSGA2
+from algorithms.nsga2 import NSGA2
 
 
 ALGORITHM_FLAGS = {'ACMMEA': {'integer', 'large', 'multi', 'multimodal', 'real', 'sparse'}}

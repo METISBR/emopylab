@@ -63,16 +63,25 @@ def crossover_mask(n_parents: int, n_matings: int, n_var: int) -> np.ndarray:
     return np.random.choice([True, False], size=(n_matings, n_var))
 
 
-def row_at_least_once_true(M: np.ndarray) -> np.ndarray:
-    """Ensure every row of a boolean matrix has at least one True entry."""
+def row_at_least_once_true(M: np.ndarray, random_state: Any = None) -> np.ndarray:
+    """Ensure every row of a boolean matrix has at least one True entry.
+
+    ``random_state`` accepts a ``numpy.random.Generator`` (preferred, keeps the
+    caller's seed reproducible), the legacy ``numpy.random`` module, or ``None``
+    for the legacy global generator. Callers in ``operators/crossover/{binx,expx}``
+    pass a ``Generator`` explicitly.
+    """
     M = np.asarray(M, dtype=bool).copy()
     if M.ndim == 1:
         M = M.reshape(1, -1)
     no_true = ~np.any(M, axis=1)
     if np.any(no_true):
         idx = np.where(no_true)[0]
-        rand_cols = np.random.randint(0, M.shape[1], size=len(idx))
-        M[idx, rand_cols] = True
+        rng = random_state if random_state is not None else np.random
+        n_cols = M.shape[1]
+        draw = getattr(rng, "integers", None) or rng.randint
+        rand_cols = draw(0, n_cols, size=len(idx))
+        M[idx, np.asarray(rand_cols, dtype=int)] = True
     return M
 
 

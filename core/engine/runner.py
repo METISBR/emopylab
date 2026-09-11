@@ -125,10 +125,10 @@ def _resolve_algorithm_instance(algorithm_name: str, pop_size: int = 100, **kwar
     """Dynamically resolve and instantiate an algorithm from the EmoPyLab catalog."""
     name_clean = algorithm_name.upper().replace("_", "").replace("-", "")
 
-    # 1. Try algorithms.moo.* or algorithms.native.* first
+    # 1. Try canonical algorithms.* or algorithms.native.*
     if name_clean in ("NSGA2", "NSGAII"):
         try:
-            from algorithms.moo.nsga2 import NSGA2
+            from algorithms.nsga2 import NSGA2
             return NSGA2(pop_size=pop_size, **kwargs)
         except Exception:
             try:
@@ -150,7 +150,7 @@ def _resolve_algorithm_instance(algorithm_name: str, pop_size: int = 100, **kwar
         return NSGA3(ref_dirs=ref_dirs, pop_size=pop_size)
     elif name_clean in ("MOEAD", "MOEA/D"):
         try:
-            from algorithms.moo.moead import MOEAD
+            from algorithms.moead import MOEAD
             from util.ref_dirs import get_reference_directions
             n_obj = kwargs.get("n_obj", 3)
             ref_dirs = kwargs.get("ref_dirs")
@@ -168,14 +168,14 @@ def _resolve_algorithm_instance(algorithm_name: str, pop_size: int = 100, **kwar
 
     elif name_clean in ("RVEA",):
         try:
-            from algorithms.moo.rvea import RVEA
+            from algorithms.rvea import RVEA
             return RVEA(pop_size=pop_size, **kwargs)
         except Exception:
             pass
 
     elif name_clean in ("AGEMOEA2", "AGE2", "AGEII"):
         try:
-            from algorithms.moo.age2 import AGEMOEA2
+            from algorithms.age2 import AGEMOEA2
             return AGEMOEA2(pop_size=pop_size, **kwargs)
         except Exception:
             try:

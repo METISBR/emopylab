@@ -7,7 +7,7 @@ K. Qiao, J. Liang, Z. Liu, K. Yu, C. Yue, and B. Qu. Evolutionary multitasking w
 
 from __future__ import annotations
 
-from algorithms.moo.nsga2 import NSGA2
+from algorithms.nsga2 import NSGA2
 
 
 ALGORITHM_FLAGS = {'CMEGL': {'binary', 'constrained', 'integer', 'label', 'multi', 'permutation', 'real'}}

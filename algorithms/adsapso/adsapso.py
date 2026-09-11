@@ -7,7 +7,7 @@ J. Lin, C. He, and R. Cheng. Adaptive dropout for high-dimensional expensive mul
 
 from __future__ import annotations
 
-from algorithms.moo.nsga2 import NSGA2
+from algorithms.nsga2 import NSGA2
 
 
 ALGORITHM_FLAGS = {'ADSAPSO': {'expensive', 'integer', 'many', 'multi', 'real'}}

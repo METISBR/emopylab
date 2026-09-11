@@ -5,6 +5,8 @@ from __future__ import annotations
 from .nsga3 import (
     NSGA3,
     NSGAIII,
+    ReferenceDirectionSurvival,
+    associate_to_niches,
     HyperplaneNormalization,
     _environmental_selection,
     _last_selection,
@@ -31,5 +33,7 @@ __all__ = [
     "_population_constraints",
     "_update_zmin",
     "ALGORITHMS",
+    "ReferenceDirectionSurvival",
+    "associate_to_niches",
     "ALGORITHM_FLAGS",
 ]

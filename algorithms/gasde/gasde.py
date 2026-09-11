@@ -18,12 +18,12 @@ from copy import deepcopy
 from typing import Any
 
 import numpy as np
-from algorithms.moo.nsga2 import NSGA2, binary_tournament
+from algorithms.nsga2 import NSGA2, binary_tournament
 from core.population import Population
 from core.survival import Survival
 from operators.crossover.sbx import SBX
 from operators.mutation.pm import PM
-from operators.sampling.lhs import LHS
+from operators.sampling.lhs import LatinHypercubeSampling
 from operators.selection.tournament import TournamentSelection
 from util.nds.non_dominated_sorting import NonDominatedSorting
 
@@ -674,7 +674,7 @@ class GASDE(NSGA2):
         )
         super().__init__(
             pop_size=int(pop_size),
-            sampling=LHS() if sampling is None else sampling,
+            sampling=LatinHypercubeSampling() if sampling is None else sampling,
             selection=TournamentSelection(func_comp=binary_tournament) if selection is None else selection,
             crossover=SBX(prob=0.9, eta=15) if crossover is None else crossover,
             mutation=PM(eta=20) if mutation is None else mutation,

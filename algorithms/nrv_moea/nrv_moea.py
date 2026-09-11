@@ -19,7 +19,7 @@ from operators.utility_functions.NDSort import NDSort
 from operators.utility_functions.OperatorGA import OperatorGA
 from operators.utility_functions.TournamentSelection import TournamentSelection
 from algorithms.community_utils.moead_family import max_fe, set_optimum_from_pop
-from operators.sampling.rnd import FloatRandomSampling
+from operators.sampling.lhs import LatinHypercubeSampling
 
 
 ALGORITHM_FLAGS = {"NRVMOEA": {"binary", "integer", "label", "many", "multi", "permutation", "real"}}
@@ -114,7 +114,7 @@ def _rng(algo):
 
 def _sample_initial(problem, n, sampling, rng):
     if sampling is None:
-        sampling = FloatRandomSampling()
+        sampling = LatinHypercubeSampling()
     return sampling.do(problem, int(n), random_state=rng)
 
 

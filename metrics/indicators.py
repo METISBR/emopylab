@@ -98,15 +98,23 @@ class HV(Indicator):
         elif M == 3:
             return _exact_3d_hv_inclusion_exclusion(F, self.ref_point)
         else:
-            # For M >= 4, use Monte Carlo approximation against reference point
+            # For M >= 4, use Latin Hypercube Sampling (LHS) Monte Carlo approximation against reference point
             valid = np.all(F <= self.ref_point, axis=1)
             F_valid = F[valid]
             if F_valid.shape[0] == 0:
                 return 0.0
             min_val = np.min(F_valid, axis=0)
-            rng = np.random.default_rng(1)
             sample_num = int(self.kwargs.get("sample_num", 10_000))
-            samples = rng.uniform(low=min_val, high=self.ref_point, size=(sample_num, M))
+            from operators.sampling.lhs import _latin_hypercube_numpy
+            try:
+                from scipy.stats import qmc
+                sampler = qmc.LatinHypercube(d=M, scramble=True, seed=1)
+                unit = sampler.random(n=sample_num)
+            except Exception:
+                rng = np.random.default_rng(1)
+                unit = _latin_hypercube_numpy(sample_num, M, scramble=True, rng=rng)
+            span = self.ref_point - min_val
+            samples = min_val + unit * span
             dom = np.zeros(sample_num, dtype=bool)
             for pt in F_valid:
                 dom |= np.all(samples >= pt, axis=1)

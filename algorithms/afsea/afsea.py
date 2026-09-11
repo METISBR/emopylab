@@ -7,7 +7,7 @@ P. Zhang, H. Yin, Y. Tian, and X. Zhang. An adjoint feature-selection-based evol
 
 from __future__ import annotations
 
-from algorithms.moo.nsga2 import NSGA2
+from algorithms.nsga2 import NSGA2
 
 
 ALGORITHM_FLAGS = {'AFSEA': {'binary', 'integer', 'multi', 'real', 'sparse'}}

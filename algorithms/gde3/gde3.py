@@ -12,7 +12,8 @@ from __future__ import annotations
 import numpy as np
 from core.algorithm import Algorithm
 from core.population import Population
-from operators.sampling.rnd import FloatRandomSampling, IntegerRandomSampling
+from operators.sampling.lhs import LatinHypercubeSampling
+from operators.sampling.rnd import IntegerRandomSampling
 from util.optimum import filter_optimum
 
 from operators.utility_functions.CrowdingDistance import CrowdingDistance
@@ -142,7 +143,7 @@ class GDE3(Algorithm):
         vtype = getattr(self.problem, "vtype", float)
         if vtype in (int, np.int32, np.int64):
             return IntegerRandomSampling()
-        return FloatRandomSampling()
+        return LatinHypercubeSampling()
 
     def _initialize_infill(self):
         sampling = self.sampling if self.sampling is not None else self._default_sampling()

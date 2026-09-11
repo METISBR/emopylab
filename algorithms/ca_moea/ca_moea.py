@@ -7,7 +7,7 @@ Y. Hua, Y. Jin, and K. Hao. A clustering-based adaptive evolutionary algorithm f
 
 from __future__ import annotations
 
-from algorithms.moo.nsga2 import NSGA2
+from algorithms.nsga2 import NSGA2
 
 
 ALGORITHM_FLAGS = {'CAMOEA': {'binary', 'integer', 'label', 'multi', 'permutation', 'real'}}

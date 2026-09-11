@@ -7,7 +7,7 @@ X. Wang, Y. Jin, S. Schmitt, and M. Olhofer. An adaptive Bayesian approach to su
 
 from __future__ import annotations
 
-from algorithms.moo.nsga2 import NSGA2
+from algorithms.nsga2 import NSGA2
 
 
 ALGORITHM_FLAGS = {'ABSAEA': {'expensive', 'integer', 'many', 'multi', 'real'}}

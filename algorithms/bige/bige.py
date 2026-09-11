@@ -7,7 +7,7 @@ M. Li, S. Yang, and X. Liu. Bi-goal evolution for many-objective optimization pr
 
 from __future__ import annotations
 
-from algorithms.moo.nsga2 import NSGA2
+from algorithms.nsga2 import NSGA2
 
 
 ALGORITHM_FLAGS = {'BiGE': {'binary', 'integer', 'label', 'many', 'permutation', 'real'}}

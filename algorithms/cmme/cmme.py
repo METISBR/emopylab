@@ -7,7 +7,7 @@ F. Ming, W. Gong, L. Wang, and L. Gao. A constrained many-objective optimization
 
 from __future__ import annotations
 
-from algorithms.moo.nsga2 import NSGA2
+from algorithms.nsga2 import NSGA2
 
 
 ALGORITHM_FLAGS = {'CMME': {'binary', 'constrained', 'integer', 'label', 'many', 'permutation', 'real'}}

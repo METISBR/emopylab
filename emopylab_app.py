@@ -193,11 +193,12 @@ LEGACY_OPERATOR_ALIASES: dict[str, dict[str, tuple[str, str]]] = {
         "random_binary": ("operators.selection.tournament", "TournamentSelection"),
     },
     "sampling": {
+        "lhs": ("operators.sampling.lhs", "LatinHypercubeSampling"),
+        "latin_hypercube": ("operators.sampling.lhs", "LatinHypercubeSampling"),
         "float_random": ("operators.sampling.rnd", "FloatRandomSampling"),
         "int_random": ("operators.sampling.rnd", "IntegerRandomSampling"),
         "binary_random": ("operators.sampling.rnd", "BinaryRandomSampling"),
         "perm_random": ("operators.sampling.rnd", "PermutationRandomSampling"),
-        "lhs": ("operators.sampling.lhs", "LHS"),
     },
 }
 
@@ -1278,7 +1279,7 @@ def _install_legacy_runtime_aliases() -> None:
         importlib.import_module("algorithms")
     except Exception:
         _ensure_virtual_package("algorithms")
-    _ensure_virtual_package("algorithms.moo")
+    _ensure_virtual_package("util.nds")
     _ensure_virtual_package("util.nds")
     _ensure_virtual_package("util.display")
 
@@ -2553,11 +2554,7 @@ def discover_algorithm_specs(base_dir: Path, warnings: list[str]) -> dict[str, A
         module_names: set[str] = set()
 
         try:
-            import algorithms.moo as moo_algorithms
-            module_names.update(
-                mod_info.name
-                for mod_info in pkgutil.walk_packages(moo_algorithms.__path__, prefix="algorithms.moo.")
-            )
+            pass  # moo facade removed; local discovery handles canonical packages
         except Exception as exc:  # noqa: BLE001
             pass
 
@@ -8681,7 +8678,7 @@ class EmoPyLabMainWindow(QMainWindow):
             )
         elif k == "algorithms":
             return (
-                "from algorithms.moo.nsga2 import NSGA2\n\n"
+                "from algorithms.nsga2 import NSGA2\n\n"
                 "def create_algorithm(config):\n"
                 "    pop_size = int(config.get('pop_size', 100))\n"
                 "    return NSGA2(pop_size=pop_size)\n"

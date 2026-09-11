@@ -54,10 +54,18 @@ class UniformReferenceDirectionFactory:
 
 def _energy_ref_dirs(n_obj: int, n_points: int, iters: int = 100) -> np.ndarray:
     """Generate reference directions by minimizing potential energy on the unit simplex."""
-    # Initialize randomly on simplex
+    if n_obj == 2:
+        return das_dennis_ref_dirs(2, n_partitions=max(1, n_points - 1))
+    try:
+        from operators.utility_functions.UniformPoint import UniformPoint
+        pts, n = UniformPoint(n_points, n_obj)
+        if n == n_points:
+            return np.asarray(pts, dtype=float)
+    except Exception:
+        pass
+    # Initialize on simplex
     rng = np.random.default_rng(42)
     W = rng.dirichlet(np.ones(n_obj), size=n_points)
-    # Simple projection / repulsion optimization if needed
     return W
 
 
