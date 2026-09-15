@@ -338,20 +338,34 @@ class Algorithm:
 
         opt = self.opt
         if opt is None or len(opt) == 0:
-            opt = None
-        elif not np.any(opt.get("FEAS")):
-            if self.return_least_infeasible:
-                opt = _default_filter_optimum(opt, least_infeasible=True)
+            if self.pop is not None and len(self.pop) > 0:
+                opt = _default_filter_optimum(self.pop, least_infeasible=True)
             else:
                 opt = None
+        else:
+            feas = opt.get("FEAS") if hasattr(opt, "get") else None
+            if feas is not None and any(x is not None for x in feas):
+                has_feasible = any(bool(x) for x in feas if x is not None)
+                if not has_feasible:
+                    if self.return_least_infeasible:
+                        opt = _default_filter_optimum(opt, least_infeasible=True)
+                    else:
+                        opt = None
         res.opt = opt
 
         if res.opt is None:
             X, F, CV, G, H = None, None, None, None, None
         else:
-            X, F, CV, G, H = self.opt.get("X", "F", "CV", "G", "H")
-            if self.problem is not None and getattr(self.problem, "n_obj", 1) == 1 and len(X) == 1:
-                X, F, CV, G, H = X[0], F[0], CV[0], G[0], H[0]
+            if hasattr(res.opt, "get"):
+                X, F, CV, G, H = res.opt.get("X", "F", "CV", "G", "H")
+            else:
+                X = np.array([ind.X for ind in res.opt if hasattr(ind, "X")])
+                F = np.array([ind.F for ind in res.opt if hasattr(ind, "F")])
+                CV = np.array([getattr(ind, "CV", None) for ind in res.opt]) if any(hasattr(ind, "CV") for ind in res.opt) else None
+                G = np.array([getattr(ind, "G", None) for ind in res.opt]) if any(hasattr(ind, "G") for ind in res.opt) else None
+                H = np.array([getattr(ind, "H", None) for ind in res.opt]) if any(hasattr(ind, "H") for ind in res.opt) else None
+            if self.problem is not None and getattr(self.problem, "n_obj", 1) == 1 and X is not None and len(X) == 1:
+                X, F, CV, G, H = X[0], F[0], (CV[0] if CV is not None else None), (G[0] if G is not None else None), (H[0] if H is not None else None)
 
         res.X, res.F, res.CV, res.G, res.H = X, F, CV, G, H
         res.problem = self.problem

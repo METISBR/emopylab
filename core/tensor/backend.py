@@ -323,18 +323,18 @@ def clip_bounds(x: Any, xl: Any, xu: Any) -> Any:
     """Element-wise box constraint clamping on active device."""
     if "torch" in type(x).__module__:
         import torch
-        dev = x.device
-        xl_t = xl if isinstance(xl, torch.Tensor) and xl.device == dev else torch.as_tensor(xl, device=dev, dtype=x.dtype)
-        xu_t = xu if isinstance(xu, torch.Tensor) and xu.device == dev else torch.as_tensor(xu, device=dev, dtype=x.dtype)
+        xl_t = xl if "torch" in type(xl).__module__ else torch.as_tensor(xl, device=x.device, dtype=x.dtype)
+        xu_t = xu if "torch" in type(xu).__module__ else torch.as_tensor(xu, device=x.device, dtype=x.dtype)
         return torch.clamp(x, xl_t, xu_t)
     if "mlx" in type(x).__module__:
         import mlx.core as mx
         xl_m = xl if "mlx" in type(xl).__module__ else mx.array(xl)
         xu_m = xu if "mlx" in type(xu).__module__ else mx.array(xu)
         return mx.clip(x, xl_m, xu_m)
+    if isinstance(x, np.ndarray):
+        return np.clip(x, to_numpy(xl), to_numpy(xu))
     xp = get_array_module()
     return xp.clip(x, xl, xu)
-
 def hstack(tensors: Sequence[Any]) -> Any:
     """Horizontally stacks tensors along the last dimension on active device."""
     xp = get_array_module()

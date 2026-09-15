@@ -14,7 +14,7 @@ from util.array_backend import (
     to_device,
     to_numpy,
 )
-from util.array_backend import xp as np
+import numpy as np
 
 from algorithms.community_utils.moead_family import (
     max_fe,

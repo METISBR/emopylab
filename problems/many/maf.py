@@ -423,9 +423,10 @@ class MaF7(_BaseMaF):
 
 
 class MaF8(_BaseMaF):
-    def __init__(self, n_obj: int = 10, **kwargs):
+    def __init__(self, n_var: int | None = None, n_obj: int = 10, **kwargs):
         n_obj = max(3, int(n_obj))
         self.points = self._build_points(n_obj)
+        kwargs.pop("n_var", None)
         super().__init__(n_var=2, n_obj=n_obj, xl=np.array([-10000.0, -10000.0]), xu=np.array([10000.0, 10000.0]), vtype=float, **kwargs)
 
     @staticmethod
@@ -453,10 +454,11 @@ class MaF8(_BaseMaF):
 
 
 class MaF9(_BaseMaF):
-    def __init__(self, n_obj: int = 10, **kwargs):
+    def __init__(self, n_var: int | None = None, n_obj: int = 10, **kwargs):
         n_obj = max(3, int(n_obj))
         self.points = MaF8._build_points(n_obj)
         self.polygons = self._build_polygons(self.points)
+        kwargs.pop("n_var", None)
         super().__init__(n_var=2, n_obj=n_obj, xl=np.array([-10000.0, -10000.0]), xu=np.array([10000.0, 10000.0]), vtype=float, **kwargs)
 
     @staticmethod

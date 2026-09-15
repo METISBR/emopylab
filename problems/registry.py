@@ -7,12 +7,28 @@ from typing import Any
 from core.problem import Problem
 
 
+__all__ = ["get_problem", "list_problem_names", "register_problem"]
+
 _PROBLEM_REGISTRY: dict[str, type[Problem]] = {}
 
 
 def register_problem(name: str, cls: type[Problem]) -> None:
     """Register a Problem class under a case-insensitive key."""
     _PROBLEM_REGISTRY[name.lower()] = cls
+
+
+def list_problem_names() -> list[str]:
+    """List all registered and built-in benchmark problem names."""
+    names: set[str] = set(_PROBLEM_REGISTRY.keys())
+    names.update(f"zdt{i}" for i in range(1, 7))
+    names.update(f"zdt{i}_jax" for i in range(1, 7))
+    names.update(f"dtlz{i}" for i in range(1, 8))
+    names.update(["c1_dtlz1", "c1_dtlz3", "c2_dtlz2", "c3_dtlz1", "c3_dtlz4"])
+    names.update(f"wfg{i}" for i in range(1, 10))
+    names.update(f"maf{i}" for i in range(1, 16))
+    names.update(f"imop{i}" for i in range(1, 9))
+    names.update(f"uf{i}" for i in range(1, 11))
+    return sorted(names)
 
 
 def get_problem(name: str, *args: Any, **kwargs: Any) -> Problem:

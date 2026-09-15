@@ -68,8 +68,84 @@ DEFAULT_TEMPERATURE = 0.3
 DEFAULT_MAX_TOKENS = 1024
 
 # ---------------------------------------------------------------------------
-# Backend detection
+# Backend detection & Model Discovery
 # ---------------------------------------------------------------------------
+
+def get_models_directory() -> Path:
+    """Return the canonical models directory for EmoPyLab."""
+    env_dir = os.environ.get("EMOPYLAB_MODELS_DIR")
+    if env_dir:
+        p = Path(env_dir).resolve()
+        if p.exists():
+            return p
+    return (Path(__file__).resolve().parents[2] / "models").resolve()
+
+
+def list_local_models(models_dir: Optional[str | Path] = None) -> list[dict[str, Any]]:
+    """Discover and list all available model files in the models directory.
+
+    Scans for .gguf, .bin, .safetensors and returns metadata for each model.
+    """
+    target_dir = Path(models_dir).resolve() if models_dir is not None else get_models_directory()
+    if not target_dir.is_dir():
+        return []
+
+    models = []
+    for ext in ("*.gguf", "*.bin", "*.safetensors"):
+        for path in target_dir.glob(ext):
+            if path.is_file():
+                size_mb = round(path.stat().st_size / (1024 * 1024), 2)
+                is_default = "qwen2.5-0.5b" in path.name.lower()
+                models.append({
+                    "name": path.stem,
+                    "filename": path.name,
+                    "path": str(path),
+                    "size_mb": size_mb,
+                    "format": path.suffix.lstrip(".").lower(),
+                    "is_default": is_default,
+                })
+    # Sort default first, then alphabetically
+    models.sort(key=lambda m: (not m["is_default"], m["name"].lower()))
+    return models
+
+
+def resolve_local_model_path(
+    model_identifier: Optional[str | Path] = None,
+    models_dir: Optional[str | Path] = None,
+) -> Optional[Path]:
+    """Resolve a model name, filename, or explicit path to an existing model file.
+
+    Priority:
+      1. Direct path if it exists on disk.
+      2. Exact filename match in models/ directory.
+      3. Partial / stem name match in models/ directory.
+      4. Default model or first available model in models/.
+    """
+    target_dir = Path(models_dir).resolve() if models_dir is not None else get_models_directory()
+
+    if model_identifier is not None:
+        p = Path(model_identifier)
+        if p.is_file():
+            return p.resolve()
+        # Check inside models_dir
+        candidate = target_dir / model_identifier
+        if candidate.is_file():
+            return candidate.resolve()
+
+        # Search for stem/prefix match
+        ident_clean = str(model_identifier).strip().lower()
+        if target_dir.is_dir():
+            for f in target_dir.iterdir():
+                if f.is_file() and (ident_clean in f.name.lower() or ident_clean in f.stem.lower()):
+                    return f.resolve()
+
+    # Fallback to default model or first available
+    available = list_local_models(target_dir)
+    if available:
+        # Return first default or first available
+        return Path(available[0]["path"])
+    return None
+
 
 def is_apple_silicon() -> bool:
     """Return True when running on Apple Silicon (macOS, arm64)."""
@@ -99,7 +175,7 @@ def auto_backend_status() -> Dict[str, Any]:
 
     Backend selection rule (highest priority first):
       1. Explicit env var (EMOPYLAB_LLM_URL / EMOPYLAB_LMSTUDIO_URL) reachable
-      2. Running local ports (20128, 8080..8090) reachable -> HTTP
+      2. Running local ports (8080..8090) reachable -> HTTP
       3. llama-cpp-python in-process
       4. Fallback HTTP
     """
@@ -109,7 +185,7 @@ def auto_backend_status() -> Dict[str, Any]:
     mlx_ok = mlx_runtime_available()
     llama_ok = llama_cpp_python_available()
 
-    # Discover actively running local ports (e.g. 20128, 8080..8090)
+    # Discover actively running local ports (e.g. 8080..8090)
     discovered_url = DEFAULT_BASE_URL
     env_url = (
         os.environ.get("EMOPYLAB_LLM_URL")
@@ -121,7 +197,7 @@ def auto_backend_status() -> Dict[str, Any]:
             discovered_url = clean_env
 
     if discovered_url == DEFAULT_BASE_URL:
-        for port in (20128, 8080, 8088, 8087, 8086, 8085, 8084, 8083, 8082, 8081):
+        for port in (8080, 8088, 8087, 8086, 8085, 8084, 8083, 8082, 8081, 8090):
             url = f"http://127.0.0.1:{port}/v1"
             if probe_openai_models(url, timeout=0.3).ready:
                 discovered_url = url
@@ -294,7 +370,7 @@ class LocalLLMClient:
     Backend selection (highest priority first):
       1. **Apple Silicon + mlx-lm server reachable**:
          uses the HTTP OpenAI-compatible endpoint at ``DEFAULT_BASE_URL``
-         (``localhost:20128/v1``).  This is the canonical Apple Silicon
+         (``localhost:8080/v1``).  This is the canonical Apple Silicon
          stack (mlx-lm serves ``Qwen2.5-0.5B-Instruct-4bit``).
       2. **Non-Apple-Silicon + ``llama-cpp-python`` installed**:
          uses the in-process GGUF runtime (``Llama.from_pretrained``) so
@@ -310,6 +386,7 @@ class LocalLLMClient:
     def __init__(self,
                  base_url: Optional[str] = None,
                  model: str = DEFAULT_MODEL,
+                 model_name: Optional[str] = None,
                  timeout: float = DEFAULT_TIMEOUT,
                  temperature: float = DEFAULT_TEMPERATURE,
                  max_tokens: int = DEFAULT_MAX_TOKENS,
@@ -353,10 +430,9 @@ class LocalLLMClient:
         self.gguf_n_threads = int(gguf_n_threads)
         self._inprocess: Any = None  # type: ignore[var-annotated]
 
-        local_models_dir = Path(__file__).resolve().parents[2] / "models"
-        local_gguf_path = Path(model_path) if model_path is not None else (
-            local_models_dir / "qwen2.5-0.5b-instruct-q4_k_m.gguf"
-        )
+        # Dynamic local model resolution from models/ directory
+        target_model_id = model_path or model_name or os.environ.get("EMOPYLAB_LLM_MODEL")
+        local_gguf_path = resolve_local_model_path(target_model_id)
         if self.force_inprocess:
             if not llama_cpp_python_available():
                 raise RuntimeError("force_inprocess requires llama-cpp-python")
@@ -418,9 +494,8 @@ class LocalLLMClient:
         Resolution order:
           1. exact configured model id if available
           2. any id containing 'qwen' (Qwen2.5 family)
-          3. any id containing 'vibecoding' (legacy)
-          4. first id
-          5. configured model as fallback
+          3. first id
+          4. configured model as fallback
         """
         import urllib.request
         import urllib.error
@@ -431,7 +506,7 @@ class LocalLLMClient:
             ids = [m.get("id") for m in data.get("data", []) if m.get("id")]
             if self.model in ids:
                 return self.model
-            for needle in ("qwen", "vibecoding"):
+            for needle in ("qwen",):
                 for mid in ids:
                     if needle in mid.lower():
                         return mid

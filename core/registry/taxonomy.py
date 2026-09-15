@@ -121,3 +121,63 @@ def classify_algorithm(algo_name: str, root_dir: Path | None = None) -> SolverMe
         flags={"multi", "real"},
         line_count=200,
     )
+
+
+def get_catalog_summary(root_dir: Path | None = None) -> dict[str, Any]:
+    """Returns a structured summary dictionary of the solver catalog."""
+    if root_dir is None:
+        root_dir = Path(__file__).resolve().parent.parent.parent
+    else:
+        root_dir = Path(root_dir)
+
+    algo_dir = root_dir / "algorithms"
+    solvers: list[SolverMetadata] = []
+
+    if algo_dir.is_dir():
+        for p in sorted(algo_dir.iterdir(), key=lambda x: x.name.lower()):
+            if not p.is_dir() or p.name.startswith((".", "__")):
+                continue
+            name = p.name
+            main_file = p / f"{name}.py"
+            lines = 0
+            if main_file.is_file():
+                try:
+                    lines = len(main_file.read_text(encoding="utf-8", errors="replace").splitlines())
+                except Exception:
+                    lines = 0
+
+            meta = classify_algorithm(name, root_dir=root_dir)
+            if lines > 0:
+                meta = SolverMetadata(
+                    name=meta.name,
+                    tier=meta.tier,
+                    reference=meta.reference,
+                    year=meta.year,
+                    flags=meta.flags,
+                    line_count=lines,
+                )
+            solvers.append(meta)
+    else:
+        for key in sorted(TIER_1_NATIVE_REGISTRY.keys()):
+            solvers.append(classify_algorithm(key, root_dir=root_dir))
+
+    breakdown: dict[str, int] = {}
+    for tier in SolverTier:
+        breakdown[tier.value] = sum(1 for s in solvers if s.tier == tier)
+
+    return {
+        "total_solvers": len(solvers),
+        "breakdown_by_tier": breakdown,
+        "solvers": solvers,
+    }
+
+
+__all__ = [
+    "SolverTier",
+    "SolverMetadata",
+    "TIER_1_NATIVE_REGISTRY",
+    "print_taxonomy_summary",
+    "classify_algorithm",
+    "get_catalog_summary",
+]
+

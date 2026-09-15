@@ -22,7 +22,7 @@ Optimization Theory and Applications, 114(1), 209--222.
 
 """
 
-from util.array_backend import xp as np
+import numpy as np
 
 from core.algorithm import Algorithm
 from core.population import Population

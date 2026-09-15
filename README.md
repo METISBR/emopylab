@@ -33,7 +33,7 @@ If you utilize **EmoPyLab** in your scientific research, algorithms, or benchmar
 ---
 
 ## Changelog & Release Notes
-### [v1.0.4] — 2026-09-09
+### [v1.0.5] — 2026-09-15
 * **Hypervolume Suite**: new `metrics/iqhv.py` (exact QHV-II, Jaszkiewicz COR'18 — now the default checked metric in the GUI), `metrics/r2hv_norm.py` (normalized R2-HV, Wu/Shang/Ishibuchi SSCI'23), `metrics/ndtree_hv.py` (ND-Tree distance-based estimation, Jaszkiewicz/Zielniewicz TEVC'24).
 * **Canonical raw QMC Monte Carlo**: `HV_fast_MC` defaults to direct-space scrambled-Sobol (`mode="raw"`, no coordinate rescaling), matching exact IQHV within 0.02–0.04% on MaF6 m=8/10 (NSGA-III, pop=10, 25k evals); normalized scale accessible via `mode="normalized"`.
 * **Apple Silicon / GPU fast paths**: torch MPS/CUDA/CPU float32 tiled broadcast + NumPy/MLX fallback, warmup + device-sync benchmark protocol; `tests/test_metrics_acceleration.py` 5 passed / 1 skipped.
@@ -41,7 +41,7 @@ If you utilize **EmoPyLab** in your scientific research, algorithms, or benchmar
 ### [v1.0.3] — 2026-09-07
 * **Hardware Tensor Engine Hardening**: Full native acceleration across Apple Silicon (Metal/MPS, MLX with `@mx.compile`), NVIDIA CUDA (LNCC Santos Dumont Supercomputer), and AMD ROCm.
 * **On-Device RNG & Vectorized Operators**: Replaced CPU host random generation with on-device tensor PRNGs in SBX and Polynomial Mutation, eliminating host-device synchronization ping-pong.
-* **Boolean Matrix NDS with CDP**: Integrated bitwise Boolean Matrix Non-Dominated Sorting and Deb's Constrained Dominance Principle directly into native tensor solvers (`NativeNSGA2`, `NativeNSGA3`).
+* **Boolean Matrix NDS with CDP**: Integrated bitwise Boolean Matrix Non-Dominated Sorting and Deb's Constrained Dominance Principle directly into tensor-accelerated survival operators (`NSGA2`, `NSGA3`, `TC-MaOEA`).
 * **Cross-Platform HPC PyTorch Metrics**: Introduced `metrics/community_metrics_Torch.py` and unified `MetricEvaluator` adaptive hardware dispatch for high-throughput cluster execution.
 * **IPC & Memory Optimization**: Eliminated object-inflation `.tolist()` serialization across multiprocessing workers, passing contiguous memory buffers.
 
@@ -199,18 +199,19 @@ pip install -e .
 ### 1. Single Run Optimization in Python
 
 ```python
-from algorithms.native.nsga2 import NativeNSGA2
-from problems.zdt import ZDT1
+from algorithms.nsga2 import NSGA2
+from problems.registry import get_problem
+from termination.max_gen import MaximumGenerationTermination
+from optimize import minimize
 
 # 1. Define problem and instantiate solver
-problem = ZDT1(n_var=30)
-solver = NativeNSGA2(pop_size=100)
+problem = get_problem("zdt1", n_var=30)
+algorithm = NSGA2(pop_size=100)
+termination = MaximumGenerationTermination(n_max_gen=200)
 
 # 2. Execute optimization
-result = solver.solve(problem, n_gen=200, seed=42)
+result = minimize(problem, algorithm, termination, seed=42, verbose=True)
 
-# 3. Access Pareto approximation and metrics
-print(f"Status: {result.success} in {result.runtime_seconds:.2f}s")
 print(f"Non-dominated solutions: {len(result.F)}")
 print(f"Quality Indicators: {result.metrics}")
 ```
@@ -358,7 +359,7 @@ If you utilize **EmoPyLab** in your scientific research, algorithms, or benchmar
   title   = {{EmoPyLab: A High-Throughput Benchmarking Ecosystem and Open-Source Decision Platform for Evolutionary Many-Objective Optimization}},
   month   = {9},
   year    = {2026},
-  version = {1.0.4},
+  version = {1.0.5},
   url     = {https://github.com/METISBR/emopylab},
   license = {MIT}
 }

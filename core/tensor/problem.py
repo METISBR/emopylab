@@ -12,9 +12,10 @@ from typing import Any, Optional, Sequence
 import numpy as np
 
 from core.tensor.backend import clip_bounds, get_array_module, to_device, to_numpy
+from core.problem import Problem
 
 
-class TensorProblem(ABC):
+class TensorProblem(Problem):
     """Abstract Base Class for Tensor-Native Evolutionary Problems."""
 
     def __init__(
@@ -26,14 +27,18 @@ class TensorProblem(ABC):
         xl: Optional[Sequence[float] | np.ndarray] = None,
         xu: Optional[Sequence[float] | np.ndarray] = None,
         name: Optional[str] = None,
+        **kwargs: Any,
     ) -> None:
-        self.n_var = int(n_var)
-        self.n_obj = int(n_obj)
-        self.n_ieq_constr = int(n_ieq_constr)
-        self.n_eq_constr = int(n_eq_constr)
-        self.n_constr = self.n_ieq_constr + self.n_eq_constr
+        super().__init__(
+            n_var=int(n_var),
+            n_obj=int(n_obj),
+            n_ieq_constr=int(n_ieq_constr),
+            n_eq_constr=int(n_eq_constr),
+            xl=xl,
+            xu=xu,
+            **kwargs,
+        )
         self.name = str(name or self.__class__.__name__)
-
         # Lower and upper decision bounds
         if xl is None:
             xl = np.zeros(self.n_var, dtype=np.float32)
@@ -88,22 +93,19 @@ class TensorProblem(ABC):
         """
         raise NotImplementedError
 
-    def evaluate(self, X: Any, *args: Any, return_values_of: Any = None, **kwargs: Any) -> Any:
+    def evaluate(self, X: Any, *args: Any, return_values_of: Any = None, return_as_dictionary: bool = False, **kwargs: Any) -> Any:
         """Evaluates batch of solutions X with automatic bound enforcement."""
-        if isinstance(X, np.ndarray) or not hasattr(X, "shape"):
-            # Handle population objects or standard arrays
-            pass
-        X_clamped = self.clamp(X)
+        if hasattr(X, "get"):
+            X_arr = X.get("X")
+        else:
+            X_arr = X
+        X_dev = to_device(X_arr)
+        X_clamped = self.clamp(X_dev)
         F, G = self._evaluate(X_clamped)
-        if return_values_of is not None:
+        if return_values_of is not None or return_as_dictionary or kwargs.get("return_as_dictionary"):
             res_dict = {}
-            if "F" in return_values_of:
-                res_dict["F"] = to_numpy(F)
-            if "G" in return_values_of:
-                res_dict["G"] = to_numpy(G) if G is not None else None
+            res_dict["F"] = to_numpy(F)
+            if G is not None:
+                res_dict["G"] = to_numpy(G)
             return res_dict
         return F, G
-
-    def pareto_front(self, n_points: int = 100) -> Optional[np.ndarray]:
-        """Generates or returns true analytical Pareto front (if available)."""
-        return None

@@ -28,6 +28,12 @@ from .rollout import (
     rollout_allows_domain,
     rollout_stage,
 )
+from .taxonomy import (
+    SolverMetadata,
+    SolverTier,
+    classify_algorithm,
+    get_catalog_summary,
+)
 
 __all__ = [
     "BACKENDS",
@@ -52,4 +58,8 @@ __all__ = [
     "select_specs_for_backend",
     "strip_jax_suffix",
     "strip_variant_suffix",
+    "SolverMetadata",
+    "SolverTier",
+    "classify_algorithm",
+    "get_catalog_summary",
 ]

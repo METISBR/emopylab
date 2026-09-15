@@ -23,7 +23,7 @@ from __future__ import annotations
 import math
 from typing import Optional, Tuple
 
-from util.array_backend import xp as np
+import numpy as np
 
 from algorithms.nsga3 import ReferenceDirectionSurvival, associate_to_niches
 from algorithms.sms import cv_and_dom_tournament

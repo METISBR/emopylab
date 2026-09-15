@@ -99,7 +99,7 @@ class TC_MaOEA(Algorithm):
         shared_normal: str = "certified",
         gate_mode: str = "smr",
         selection_mode: str = "tournament",
-        variation_operator: str = "de",
+        variation_operator: str = "hybrid",
         env_selection: str = "epr",
         eta_n_min: float = 0.20,
         eta_n_max: float = 0.60,
@@ -110,10 +110,11 @@ class TC_MaOEA(Algorithm):
         wadapt_mode: str = "degenerate_pos",
         degeneracy_frac: float = 0.6,
         degeneracy_ratio: float = 0.15,
-        use_llm: bool = False,
-        llm_interval: int = 20,
-        llm_max_calls: int = 15,
+        use_llm: bool = True,
+        llm_interval: int = 3,
+        llm_max_calls: int = 100,
         llm_temperature: float = 0.9,
+        llm_model_name: Optional[str] = None,
         llm_model_path: Optional[str | Path] = None,
         llm_log_path: Optional[str | Path] = None,
         sampling=None,
@@ -176,6 +177,7 @@ class TC_MaOEA(Algorithm):
         self.llm_interval = int(max(1, llm_interval))
         self.llm_max_calls = int(max(0, llm_max_calls))
         self.llm_temperature = float(np.clip(llm_temperature, 0.0, 1.0))
+        self.llm_model_name = str(llm_model_name) if llm_model_name is not None else None
         self.llm_model_path = Path(llm_model_path) if llm_model_path is not None else None
         self.llm_log_path = Path(llm_log_path) if llm_log_path is not None else None
 
@@ -620,19 +622,30 @@ class TC_MaOEA(Algorithm):
             n_ga = N // 2
             n_de = N - n_ga
             n_parents_ga = n_ga + (1 if n_ga % 2 == 1 else 0)
-            if hasattr(rng, "choice"):
-                parents_ga = rng.choice(p_base[:n_ga], size=n_parents_ga)
+            if hasattr(rng, "integers"):
+                draws_ga = rng.integers(0, N, size=(2, n_parents_ga))
             else:
-                parents_ga = np.random.choice(p_base[:n_ga], size=n_parents_ga)
-            off_ga = OperatorGA(self.problem, self.pop[parents_ga].get("X"), rng=rng)[:n_ga]
-            pn_dkkt = P_N @ d_kkt
-            if np.linalg.norm(pn_dkkt) > 1e-6 and self.J is not None and np.all(self.J @ pn_dkkt < -1e-8):
-                off_ga = off_ga + 0.5 * self.eta_N * pn_dkkt[None, :]
+                draws_ga = rng.randint(0, N, size=(2, n_parents_ga))
+            p_ga = draws_ga[0]
+            off_ga = OperatorGA(self.problem, self.pop[p_ga].get("X"), rng=rng)[:n_ga]
             off_ga = np.clip(off_ga, xl, xu)
 
-            scale_T = max(np.sqrt(float(self.d_star)), 1.0)
-            delta_de = 0.5 * (X[r1[n_ga:]] - X[r2[n_ga:]])
-            delta_T = (delta_de @ P_T.T) / scale_T
+            # Arm 2: Tangent-Coupled DE with full energy preservation
+            if hasattr(rng, "integers"):
+                draws_de = rng.integers(0, N, size=(2, n_de))
+                d1 = rng.integers(0, N, size=(2, n_de))
+                d2 = rng.integers(0, N, size=(2, n_de))
+            else:
+                draws_de = rng.randint(0, N, size=(2, n_de))
+                d1 = rng.randint(0, N, size=(2, n_de))
+                d2 = rng.randint(0, N, size=(2, n_de))
+
+            p_base_de = draws_de[0]
+            r1_de = d1[0]
+            r2_de = d2[0]
+
+            delta_de = 0.5 * (X[r1_de] - X[r2_de])
+            delta_T = delta_de @ P_T.T
 
             curr_eval = float(self.n_evals)
             max_eval = float(getattr(self.termination, "n_max_evals", getattr(self.termination, "n_max_eval", 30000)))
@@ -644,14 +657,26 @@ class TC_MaOEA(Algorithm):
             delta_N_ind = delta_de @ P_N.T
             delta_N = delta_N_shared[None, :] + delta_N_ind + xi
 
-            trial = X[p_base[n_ga:]] + (self.eta_T * delta_T + self.eta_N * delta_N)
-            off_de = np.clip(trial, xl, xu)
+            trial_de = X[p_base_de] + (delta_T + delta_N)
+
+            if self.cr < 1.0:
+                if hasattr(rng, "random"):
+                    mask = rng.random((n_de, D)) < self.cr
+                    j_rand = rng.integers(0, D, size=n_de)
+                else:
+                    mask = rng.uniform(0.0, 1.0, size=(n_de, D)) < self.cr
+                    j_rand = rng.randint(0, D, size=n_de)
+                mask[np.arange(n_de), j_rand] = True
+                off_de = np.where(mask, trial_de, X[p_base_de])
+            else:
+                off_de = trial_de
+
+            off_de = np.clip(off_de, xl, xu)
             off_de = safe_polynomial_mutation(off_de, xl, xu, eta_m=20.0, prob_m=1.0 / max(D, 1), rng=rng)
             off_de = np.clip(off_de, xl, xu)
 
             off_all = np.vstack([off_ga, off_de])
             return Population.new("X", off_all)
-
         # Default differential evolution path (variation_operator == "de")
         scale_T = max(np.sqrt(float(self.d_star)), 1.0)
         delta_de = 0.5 * (X[r1] - X[r2])
@@ -702,6 +727,7 @@ class TC_MaOEA(Algorithm):
             temperature=self.llm_temperature,
             max_tokens=64,
             force_inprocess=True,
+            model_name=self.llm_model_name,
             model_path=self.llm_model_path,
         )
 

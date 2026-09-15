@@ -1,5 +1,5 @@
 """EmoPyLab Benchmark Problems Package."""
 
-from problems.registry import get_problem, register_problem
+from problems.registry import get_problem, list_problem_names, register_problem
 
-__all__ = ["get_problem", "register_problem"]
+__all__ = ["get_problem", "list_problem_names", "register_problem"]

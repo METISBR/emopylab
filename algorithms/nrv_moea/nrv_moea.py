@@ -9,7 +9,7 @@ and many-objective optimization. Complex & Intelligent Systems, 2024,
 
 from __future__ import annotations
 
-from util.array_backend import xp as np
+import numpy as np
 from util.array_backend import backend_cdist
 
 from core.algorithm import Algorithm
@@ -102,15 +102,15 @@ def _ward_clustering(data, n_clusters):
 
 
 def _rng(algo):
+    import numpy as np_std
     rng = getattr(algo, "random_state", None)
-    if isinstance(rng, np.random.Generator):
+    if isinstance(rng, np_std.random.Generator):
         return rng
     if rng is None:
-        rng = np.random.default_rng()
+        rng = np_std.random.default_rng()
         algo.random_state = rng
         return rng
-    return np.random.default_rng(int(rng))
-
+    return np_std.random.default_rng(int(rng))
 
 def _sample_initial(problem, n, sampling, rng):
     if sampling is None:

@@ -185,6 +185,26 @@ class GDPlus(Indicator):
         return float(np.mean(dists))
 
 
+class Spacing(Indicator):
+    """Spacing indicator (Schott, 1995) measuring uniformity of front points."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+
+    def do(self, F: np.ndarray) -> float:
+        if F is None or len(F) == 0:
+            return float("nan")
+        F = np.atleast_2d(np.asarray(F, dtype=float))
+        if F.shape[0] < 2:
+            return 0.0
+        # Manhattan distance to nearest neighbor
+        dists = np.sum(np.abs(F[:, None, :] - F[None, :, :]), axis=2)
+        np.fill_diagonal(dists, np.inf)
+        d_min = np.min(dists, axis=1)
+        d_mean = float(np.mean(d_min))
+        return float(np.sqrt(np.mean((d_min - d_mean) ** 2)))
+
+
 def _adaptive_r2_partitions(n_obj: int) -> int:
     """Calculates canonical Das-Dennis partitions to avoid combinatorial explosion."""
     m = int(n_obj)
@@ -286,3 +306,19 @@ class R2(Indicator):
         min_over_pop = np.min(chebyshev, axis=0)  # [K]
 
         return float(np.mean(min_over_pop))
+
+
+# Canonical Aliases
+Hypervolume = HV
+
+__all__ = [
+    "Indicator",
+    "HV",
+    "Hypervolume",
+    "IGD",
+    "IGDPlus",
+    "GD",
+    "GDPlus",
+    "Spacing",
+    "R2",
+]

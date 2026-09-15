@@ -14,6 +14,11 @@ class Termination:
         self.force_termination = False
         self.perc: float = 0.0
 
+    def reset(self) -> None:
+        """Reset termination state for a new run."""
+        self.force_termination = False
+        self.perc = 0.0
+
     def do_continue(self, *args: Any, **kwargs: Any) -> bool:
         """Return True if algorithm should continue, False if it should terminate."""
         return not self.has_terminated(*args, **kwargs)
@@ -23,17 +28,16 @@ class Termination:
         self.force_termination = True
         self.perc = 1.0
 
-    def has_terminated(self, *args: Any, **kwargs: Any) -> bool:
+    def has_terminated(self, algorithm: Any = None, *args: Any, **kwargs: Any) -> bool:
         """Check if termination condition has been reached.
 
-        Accepts an optional algorithm argument (ignored for progress
-        recomputation) so it can be called both standalone and with an
-        algorithm instance.
+        Accepts an optional algorithm instance to compute current progress.
         """
         if self.force_termination:
             return True
+        if algorithm is not None:
+            self.update(algorithm)
         return self.perc >= 1.0
-
     def update(self, algorithm: Any = None) -> float:
         """Update termination progress and return fraction complete (0.0 to 1.0)."""
         if self.force_termination:

@@ -65,10 +65,11 @@ def minimize(
 
     if copy_termination:
         termination = copy.deepcopy(termination)
+    elif hasattr(termination, "reset"):
+        termination.reset()
 
     algorithm.termination = termination
     algorithm.verbose = verbose
-
     # Setup display
     if display is None and verbose:
         n_obj = getattr(problem, "n_obj", 1)

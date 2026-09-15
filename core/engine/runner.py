@@ -125,19 +125,13 @@ def _resolve_algorithm_instance(algorithm_name: str, pop_size: int = 100, **kwar
     """Dynamically resolve and instantiate an algorithm from the EmoPyLab catalog."""
     name_clean = algorithm_name.upper().replace("_", "").replace("-", "")
 
-    # 1. Try canonical algorithms.* or algorithms.native.*
+    # 1. Try canonical algorithms.*
     if name_clean in ("NSGA2", "NSGAII"):
         try:
             from algorithms.nsga2 import NSGA2
             return NSGA2(pop_size=pop_size, **kwargs)
         except Exception:
-            try:
-                from algorithms.native.nsga2 import NativeNSGA2
-                sig = inspect.signature(NativeNSGA2.__init__)
-                valid_kw = {k: v for k, v in kwargs.items() if k in sig.parameters}
-                return NativeNSGA2(pop_size=pop_size, **valid_kw)
-            except Exception:
-                pass
+            pass
 
     elif name_clean in ("NSGA3", "NSGAIII"):
         from algorithms.nsga3.nsga3 import NSGA3
@@ -158,14 +152,7 @@ def _resolve_algorithm_instance(algorithm_name: str, pop_size: int = 100, **kwar
                 ref_dirs = get_reference_directions("das-dennis", n_obj, n_partitions=12)
             return MOEAD(ref_dirs=ref_dirs, n_neighbors=15)
         except Exception:
-            try:
-                from algorithms.native.moead import NativeMOEAD
-                sig = inspect.signature(NativeMOEAD.__init__)
-                valid_kw = {k: v for k, v in kwargs.items() if k in sig.parameters}
-                return NativeMOEAD(n_neighbors=15, **valid_kw)
-            except Exception:
-                pass
-
+            pass
     elif name_clean in ("RVEA",):
         try:
             from algorithms.rvea import RVEA

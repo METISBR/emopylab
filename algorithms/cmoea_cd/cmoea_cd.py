@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from util.array_backend import xp as np
+import numpy as np
 
 from core.algorithm import Algorithm
 from core.population import Population

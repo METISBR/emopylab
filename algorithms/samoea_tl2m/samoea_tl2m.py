@@ -21,7 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-from util.array_backend import xp as np
+import numpy as np
 
 from algorithms.sms import cv_and_dom_tournament
 from core.algorithm import Algorithm
