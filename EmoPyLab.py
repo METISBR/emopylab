@@ -28,7 +28,8 @@ EMOPYLAB_ALGORITHMS = [
     {"class_name": "SMSEMOA", "name": "SMS-EMOA"},
     {"class_name": "SPEA2", "name": "SPEA2"},
     {"class_name": "DNV_MaOEA", "name": "DNV-MaOEA"},
-    {"class_name": "SSW_DNV", "name": "SSW-DNV"},
+    {"class_name": "SSW", "name": "SSW"},
+    {"class_name": "SSW2", "name": "SSW-II"},
     {"class_name": "UNSGA3", "name": "U-NSGA-III"},
 ]
 
@@ -435,7 +436,12 @@ try:
     _HAS_MPL_3D = True
 except ImportError:
     _HAS_MPL_3D = False
-from PySide6.QtCharts import QChart, QChartView, QLineSeries, QScatterSeries, QValueAxis
+try:
+    from PySide6.QtCharts import QChart, QChartView, QLineSeries, QScatterSeries, QValueAxis
+    _HAS_QTCHARTS = True
+except ImportError:
+    QChart = QChartView = QLineSeries = QScatterSeries = QValueAxis = None  # type: ignore[assignment,misc]
+    _HAS_QTCHARTS = False
 from core.execution.plotly_bridge import (
     PlotlyWidget,
     make_convergence_figure,
@@ -15053,57 +15059,6 @@ class EmoPyLabMainWindow(QMainWindow):
 
         return True
 
-    def _apply_scientific_chart_theme(
-        self,
-        chart: QChart,
-        axes: tuple[QValueAxis, ...] = (),
-    ) -> None:
-        """Apply the shared accessible chart treatment across Qt backends.
-
-        In Dark Mode, axes lines and tick labels are rendered in crisp bright white
-        (#F8FAFC) to guarantee high visual acuity and match axis markings identically.
-        """
-        colors = StylesAppStyles.colors
-        is_dark = (StylesAppStyles.current_theme == "dark")
-        chart_text_color = QColor("#F8FAFC" if is_dark else colors.text_primary)
-        axis_line_color = QColor("#F8FAFC" if is_dark else colors.text_secondary)
-        grid_line_color = QColor("#334155" if is_dark else colors.border_light)
-
-        chart.setBackgroundBrush(QBrush(QColor(colors.surface)))
-        chart.setPlotAreaBackgroundVisible(True)
-        chart.setPlotAreaBackgroundBrush(QBrush(QColor(colors.surface)))
-        chart.setTitleBrush(QBrush(chart_text_color))
-
-        legend = chart.legend()
-        try:
-            legend.setLabelColor(chart_text_color)
-        except AttributeError:
-            pass
-
-        grid_pen = QPen(grid_line_color, 1.0)
-        axis_pen = QPen(axis_line_color, 1.2)
-
-        for axis in axes:
-            axis.setGridLinePen(grid_pen)
-            try:
-                axis.setLinePen(axis_pen)
-                axis.setLabelsColor(axis_line_color)
-                axis.setTitleBrush(QBrush(chart_text_color))
-            except AttributeError:
-                pass
-
-    @staticmethod
-    def _set_chart_series_color(series: Any, color: str, *, width: float = 2.0) -> None:
-        """Color Qt line or scatter series without assuming a Qt binding detail."""
-        qcolor = QColor(color)
-        if isinstance(series, QLineSeries):
-            series.setPen(QPen(qcolor, width))
-            return
-        try:
-            series.setColor(qcolor)
-            series.setBorderColor(qcolor.darker(120))
-        except AttributeError:
-            pass
 
     def _set_empty_test_result_chart(self) -> None:
         colors = StylesAppStyles.colors

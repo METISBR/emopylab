@@ -136,20 +136,26 @@ def _resolve_algorithm_instance(algorithm_name: str, pop_size: int = 100, **kwar
     elif name_clean in ("NSGA3", "NSGAIII"):
         from algorithms.nsga3.nsga3 import NSGA3
         from util.ref_dirs import get_reference_directions
-        n_obj = kwargs.get("n_obj", 3)
+        from operators.utility_functions.UniformPoint import UniformPoint
+        n_obj = kwargs.get("n_obj")
         ref_dirs = kwargs.get("ref_dirs")
-        if ref_dirs is None:
-            if n_obj <= 3:
-                p = 12
-            elif n_obj <= 5:
-                p = 6
-            elif n_obj <= 8:
-                p = 3
+        if ref_dirs is None and n_obj is not None:
+            if n_obj <= 2:
+                ref_dirs, n_eff = UniformPoint(pop_size, n_obj)
+                pop_size = int(n_eff)
             else:
-                p = 2
-            ref_dirs = get_reference_directions("das-dennis", n_obj=n_obj, n_partitions=p)
-        pop_size = kwargs.get("pop_size", len(ref_dirs))
-        return NSGA3(ref_dirs=ref_dirs, pop_size=pop_size)
+                if n_obj <= 3:
+                    p = 12
+                elif n_obj <= 5:
+                    p = 6
+                elif n_obj <= 8:
+                    p = 3
+                else:
+                    p = 2
+                ref_dirs = get_reference_directions("das-dennis", n_obj=n_obj, n_partitions=p)
+                pop_size = max(pop_size, len(ref_dirs))
+        algo_kwargs = {k: v for k, v in kwargs.items() if k not in ("n_obj", "ref_dirs", "pop_size")}
+        return NSGA3(ref_dirs=ref_dirs, pop_size=pop_size, **algo_kwargs)
     elif name_clean in ("MOEAD", "MOEA/D"):
         try:
             from algorithms.moead import MOEAD
@@ -178,6 +184,24 @@ def _resolve_algorithm_instance(algorithm_name: str, pop_size: int = 100, **kwar
                 return AGEII(pop_size=pop_size, **kwargs)
             except Exception:
                 pass
+    elif name_clean == "SSW":
+        try:
+            from algorithms.ssw.ssw import SSW
+            algo_kwargs = dict(kwargs)
+            if "archive_size" not in algo_kwargs:
+                algo_kwargs["archive_size"] = pop_size
+            algo_kwargs = {k: v for k, v in algo_kwargs.items() if k not in ("n_obj", "ref_dirs", "pop_size")}
+            return SSW(**algo_kwargs)
+        except Exception:
+            pass
+    elif name_clean in ("SSW2", "SSWII"):
+        try:
+            from algorithms.ssw2.ssw2 import SSW2
+            algo_kwargs = dict(kwargs)
+            algo_kwargs = {k: v for k, v in algo_kwargs.items() if k not in ("n_obj", "pop_size")}
+            return SSW2(pop_size=pop_size, **algo_kwargs)
+        except Exception:
+            pass
     # 2. Try exact match or normalized match in algorithms/ directory
     root_dir = Path(__file__).resolve().parent.parent.parent
     algo_dir = root_dir / "algorithms"
@@ -216,6 +240,7 @@ def run_single_optimization(
     n_obj: Optional[int] = None,
     custom_algo_params: Optional[dict[str, Any]] = None,
     progress_callback: Optional[Callable[[int, int, dict[str, float]], None]] = None,
+    termination: Optional[Any] = None,
 ) -> OptimizationResult:
     """Execute a single deterministic multi-objective optimization run.
 
@@ -278,10 +303,11 @@ def run_single_optimization(
             F_res = res_solve.F if hasattr(res_solve, "F") and res_solve.F is not None else np.empty((0, problem.n_obj))
             X_res = res_solve.X if hasattr(res_solve, "X") and res_solve.X is not None else np.empty((0, problem.n_var))
         else:
+            actual_term = termination if termination is not None else ("n_gen", n_gen)
             res = minimize(
                 problem,
                 algorithm,
-                ("n_gen", n_gen),
+                actual_term,
                 **minimize_kwargs,
             )
             F_res = res.F if res.F is not None else np.empty((0, problem.n_obj))

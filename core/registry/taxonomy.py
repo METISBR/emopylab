@@ -42,17 +42,17 @@ TIER_1_NATIVE_REGISTRY: dict[str, dict[str, Any]] = {
         "year": 2025,
         "flags": {"many", "multi", "real", "directional", "normal_vector"},
     },
-    "ssw_dnv": {
-        "name": "SSW-DNV",
-        "reference": "Subspace Walking Directional Normal Vector Algorithm",
-        "year": 2026,
-        "flags": {"many", "multi", "real", "subspace"},
+    "ssw": {
+        "name": "SSW",
+        "reference": "Stochastic Steepest Weights for Vector Optimization (Schaeffler, Schultz & Weinzierl, JOTA 2002)",
+        "year": 2002,
+        "flags": {"many", "multi", "real", "stochastic_differential_equations", "gradient_free"},
     },
-    "ssw_rdpa": {
-        "name": "SSW-RDPA",
-        "reference": "Subspace Walking Reference Distance Path Algorithm",
+    "ssw2": {
+        "name": "SSW2",
+        "reference": "Population-Based Stochastic Steepest Weights with Ensemble Jacobian (Santos & Xavier 2026)",
         "year": 2026,
-        "flags": {"many", "multi", "real", "reference_distance"},
+        "flags": {"many", "multi", "real", "ensemble_jacobian", "stochastic_differential"},
     },
     "maaco": {
         "name": "MAACO",
