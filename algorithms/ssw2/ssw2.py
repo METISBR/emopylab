@@ -87,7 +87,7 @@ class SSW2(Algorithm):
         ref_dirs: Optional[np.ndarray] = None,
         k_neighbors: Optional[int] = None,
         regularization: float = 1e-5,
-        use_momentum: bool = False,
+        use_momentum: bool = True,
         momentum_beta: float = 0.85,
         tangential_diffusion: bool = False,
         output=MultiObjectiveOutput(),
