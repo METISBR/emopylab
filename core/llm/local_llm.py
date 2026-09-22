@@ -59,10 +59,10 @@ logger = logging.getLogger(__name__)
 # mlx-lm default server port (see: ``python -m mlx_lm server --help``)
 DEFAULT_BASE_URL = "http://127.0.0.1:8080/v1"
 DEFAULT_MLX_PORT = 8080
-DEFAULT_MODEL = "mlx-community/Qwen2.5-0.5B-Instruct-4bit"
-# In-process GGUF model (used by llama-cpp-python fallback on Windows/Linux)
-DEFAULT_GGUF_REPO = "Qwen/Qwen2.5-0.5B-Instruct-GGUF"
-DEFAULT_GGUF_FILE_PATTERN = "*q4_k_m.gguf"
+DEFAULT_MODEL = "SmolLM2-360M-Instruct-Q4_K_M.gguf"
+# In-process GGUF model (used by llama-cpp-python / GGUF runtime)
+DEFAULT_GGUF_REPO = "bartowski/SmolLM2-360M-Instruct-GGUF"
+DEFAULT_GGUF_FILE_PATTERN = "SmolLM2-360M-Instruct-Q4_K_M.gguf"
 DEFAULT_TIMEOUT = 15.0
 DEFAULT_TEMPERATURE = 0.3
 DEFAULT_MAX_TOKENS = 1024
@@ -95,7 +95,7 @@ def list_local_models(models_dir: Optional[str | Path] = None) -> list[dict[str,
         for path in target_dir.glob(ext):
             if path.is_file():
                 size_mb = round(path.stat().st_size / (1024 * 1024), 2)
-                is_default = "qwen2.5-0.5b" in path.name.lower()
+                is_default = DEFAULT_GGUF_FILE_PATTERN.lower() in path.name.lower()
                 models.append({
                     "name": path.stem,
                     "filename": path.name,
@@ -139,10 +139,13 @@ def resolve_local_model_path(
                 if f.is_file() and (ident_clean in f.name.lower() or ident_clean in f.stem.lower()):
                     return f.resolve()
 
-    # Fallback to default model or first available
+    # Fallback: prefer the exact DEFAULT_GGUF_FILE_PATTERN, then is_default, then first available
     available = list_local_models(target_dir)
     if available:
-        # Return first default or first available
+        default_exact = target_dir / DEFAULT_GGUF_FILE_PATTERN
+        if default_exact.is_file():
+            return default_exact.resolve()
+        # list_local_models already sorts is_default first
         return Path(available[0]["path"])
     return None
 
@@ -196,8 +199,13 @@ def auto_backend_status() -> Dict[str, Any]:
         if probe_openai_models(clean_env, timeout=0.5).ready:
             discovered_url = clean_env
 
+    # Scan local ports for a reachable mlx-lm/llama.cpp server.
+    # Exclude well-known non-emopylab ports (20128 = omp/9router gateway).
+    _EXCLUDED_PORTS = frozenset({20128})
     if discovered_url == DEFAULT_BASE_URL:
         for port in (8080, 8088, 8087, 8086, 8085, 8084, 8083, 8082, 8081, 8090):
+            if port in _EXCLUDED_PORTS:
+                continue
             url = f"http://127.0.0.1:{port}/v1"
             if probe_openai_models(url, timeout=0.3).ready:
                 discovered_url = url
@@ -452,12 +460,47 @@ class LocalLLMClient:
             self._resolved_model = str(local_gguf_path)
             return
 
-        # Prefer a reachable HTTP server in the normal auto-detected mode.
-        probe = probe_openai_models(self.base_url, timeout=0.3)
-        if not probe.ready and use_inprocess_if_available and llama_cpp_python_available():
+        # Prioritisation logic:
+        # When the caller did NOT supply an explicit base_url AND a matching
+        # local GGUF exists, load in-process (llama-cpp-python) instead of
+        # delegating to whatever HTTP server happens to be reachable.
+        # An explicit base_url always wins (operator intent).
+        _caller_supplied_url = base_url is not None
+        _local_gguf_ready = (
+            local_gguf_path is not None
+            and local_gguf_path.is_file()
+            and local_gguf_path.stat().st_size > 0
+        )
+        if (
+            not _caller_supplied_url
+            and _local_gguf_ready
+            and use_inprocess_if_available
+            and llama_cpp_python_available()
+        ):
             try:
                 from llama_cpp import Llama  # type: ignore[import-not-found]
-                if local_gguf_path.exists():
+                self._inprocess = Llama(
+                    model_path=str(local_gguf_path),
+                    n_ctx=self.gguf_n_ctx,
+                    n_threads=self.gguf_n_threads,
+                    n_gpu_layers=-1,
+                    verbose=False,
+                )
+                logger.info("LocalLLMClient: in-process GGUF loaded from %s", local_gguf_path)
+                self._resolved_model = str(local_gguf_path)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to load in-process GGUF (%s); falling back to HTTP server.",
+                    exc,
+                )
+                self._inprocess = None
+        elif use_inprocess_if_available and llama_cpp_python_available():
+            # Caller supplied explicit URL or no local GGUF: try HTTP first,
+            # fall back to in-process only when the server is unreachable.
+            probe = probe_openai_models(self.base_url, timeout=0.3)
+            if not probe.ready and _local_gguf_ready:
+                try:
+                    from llama_cpp import Llama  # type: ignore[import-not-found]
                     self._inprocess = Llama(
                         model_path=str(local_gguf_path),
                         n_ctx=self.gguf_n_ctx,
@@ -465,20 +508,21 @@ class LocalLLMClient:
                         n_gpu_layers=-1,
                         verbose=False,
                     )
-                    logger.info("LocalLLMClient: loaded strictly from %s", local_gguf_path)
-            except Exception as exc:
-                logger.warning(
-                    "Failed to load in-process GGUF model (%s); "
-                    "LocalLLMClient will fall back to HTTP.",
-                    exc,
-                )
-                self._inprocess = None
+                    logger.info("LocalLLMClient: in-process GGUF fallback from %s", local_gguf_path)
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to load in-process GGUF (%s); LocalLLMClient will use HTTP.",
+                        exc,
+                    )
+                    self._inprocess = None
         if auto_start and is_apple_silicon():
             ensure_mlx_server_running(self.base_url, self.model, auto_start=True)
         if self._inprocess is None:
             self._resolved_model = self._resolve_model_id()
-        else:
-            self._resolved_model = f"{self.gguf_repo}::{self.gguf_filename}"
+        elif self._resolved_model is None:
+            # set by the in-process loader above when it succeeds; guard for the
+            # elif branch (explicit URL + HTTP-down fallback) that doesn't set it
+            self._resolved_model = str(local_gguf_path) if _local_gguf_ready else f"{self.gguf_repo}::{self.gguf_filename}"
 
     @property
     def backend_name(self) -> str:
@@ -493,7 +537,7 @@ class LocalLLMClient:
 
         Resolution order:
           1. exact configured model id if available
-          2. any id containing 'qwen' (Qwen2.5 family)
+          2. any id containing 'smollm' (SmolLM2 family)
           3. first id
           4. configured model as fallback
         """
@@ -506,7 +550,7 @@ class LocalLLMClient:
             ids = [m.get("id") for m in data.get("data", []) if m.get("id")]
             if self.model in ids:
                 return self.model
-            for needle in ("qwen",):
+            for needle in ("smollm", "smol"):
                 for mid in ids:
                     if needle in mid.lower():
                         return mid

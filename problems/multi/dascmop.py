@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 """
 DAS-CMOP benchmark family converted for local EmoPyLab use.

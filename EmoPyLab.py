@@ -413,14 +413,38 @@ def to_numpy(value: Any) -> np.ndarray:
     return np.asarray(value)
 
 try:
+    from PySide6.QtDataVisualization import (
+        Q3DScatter,
+        Q3DInputHandler,
+        QScatter3DSeries,
+        QScatterDataItem,
+        Q3DTheme,
+        QAbstract3DGraph,
+        Q3DCamera,
+        QValue3DAxis as QValue3DAxisVis,
+    )
+    _HAS_Q3D = True
+except (ImportError, Exception):
+    _HAS_Q3D = False
+
+
+
+try:
     from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as MplCanvas
     from matplotlib.figure import Figure as MplFigure
     _HAS_MPL_3D = True
 except ImportError:
     _HAS_MPL_3D = False
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QScatterSeries, QValueAxis
-from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup, QTimer, QUrl, QRect, QSize
-from PySide6.QtGui import QAction, QBrush, QColor, QFont, QIcon, QPainter, QPen, QPixmap, QDesktopServices
+from core.execution.plotly_bridge import (
+    PlotlyWidget,
+    make_convergence_figure,
+    make_multi_convergence_figure,
+    make_pareto_figure,
+)
+import plotly.graph_objects as go
+from PySide6.QtCore import QEvent, QObject, Qt, QThread, Signal, Slot, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup, QTimer, QUrl, QRect, QSize
+from PySide6.QtGui import QAction, QBrush, QColor, QFont, QIcon, QPainter, QPen, QPixmap, QDesktopServices, QVector3D
 from PySide6.QtWidgets import (
     QApplication,
     QAbstractItemView,
@@ -2746,7 +2770,27 @@ def _build_indicator_instance(cls: Any, context: dict[str, Any]) -> Any:
     sig = inspect.signature(cls.__init__)
     kwargs: dict[str, Any] = {}
     pf = context.get("pareto_front")
-
+    if pf is None:
+        pf = context.get("ref_pf")
+    if pf is None and context.get("problem") is not None:
+        try:
+            prob = context["problem"]
+            prob_name = str(context.get("problem_name", "") or getattr(prob, "__class__", type(prob)).__name__).lower()
+            ref_dirs = context.get("ref_dirs")
+            if ref_dirs is None:
+                from util.ref_dirs import get_reference_directions
+                m = int(context.get("n_obj", 2) or 2)
+                p_part = 12 if m <= 3 else (6 if m <= 5 else 3)
+                ref_dirs = get_reference_directions("das-dennis", m, n_partitions=p_part)
+            resolved_pf = ExperimentBridge._resolve_pareto_front(
+                prob, prob_name, ref_dirs, n_obj_hint=context.get("n_obj")
+            )
+            if resolved_pf is not None:
+                pf = resolved_pf
+                context["pareto_front"] = pf
+                context["ref_pf"] = pf
+        except Exception:
+            pass
     prepared = {
         "ref_point": context.get("ref_point"),
         "reference_point": context.get("ref_point"),
@@ -3164,14 +3208,37 @@ def discover_problem_specs(base_dir: Path, warnings: list[str]) -> dict[str, Pro
                 return True
         return False
 
-    def _entry_priority(*, entry_name: str, py_file: Path, module_sync_generated: bool) -> tuple[int, int, int]:
+    def _entry_priority(*, entry_name: str, entry_obj: Any, py_file: Path, module_sync_generated: bool) -> tuple[int, int, int, int, int]:
         name_upper = str(entry_name).strip().upper()
         module_is_jax = py_file.stem.upper().endswith("_JAX")
         entry_is_jax = name_upper.endswith("_JAX")
 
+        # Check if the class actually implements / overrides Pareto front calculation
+        has_real_pf = 0
+        if inspect.isclass(entry_obj):
+            try:
+                from core.problem import Problem
+                for attr in ("_calc_pareto_front", "pareto_front"):
+                    fn = getattr(entry_obj, attr, None)
+                    base_fn = getattr(Problem, attr, None)
+                    if fn is not None and fn is not base_fn:
+                        has_real_pf = 1
+                        break
+                if not has_real_pf:
+                    for attr in ("pf", "GetOptimum", "get_optimum", "get_pf", "GetPF"):
+                        if getattr(entry_obj, attr, None) is not None:
+                            has_real_pf = 1
+                            break
+            except Exception:
+                has_real_pf = 0
+
+        is_subfolder = 1 if py_file.parent != folder else 0
+
         # Higher tuple is better.
         return (
             1 if not module_sync_generated else 0,      # Prefer canonical (non sync-generated) modules.
+            has_real_pf,                                 # Prefer modules with real Pareto front support!
+            is_subfolder,                                # Prefer categorized subpackages (many, multi, single).
             1 if entry_is_jax == module_is_jax else 0,  # Prefer suffix-aligned entries.
             1 if not module_is_jax else 0,              # Prefer CPU module for non-JAX names.
         )
@@ -3388,6 +3455,7 @@ def discover_problem_specs(base_dir: Path, warnings: list[str]) -> dict[str, Pro
             entry_name_key = _normalize_type_name_key(entry_name_canonical)
             cand_priority = _entry_priority(
                 entry_name=entry_name_canonical,
+                entry_obj=entry_obj,
                 py_file=py_file,
                 module_sync_generated=module_sync_generated,
             )
@@ -3425,6 +3493,7 @@ def discover_problem_specs(base_dir: Path, warnings: list[str]) -> dict[str, Pro
                     jax_name_key = _normalize_type_name_key(jax_name)
                     jax_priority = _entry_priority(
                         entry_name=jax_name,
+                        entry_obj=entry_obj,
                         py_file=py_file,
                         module_sync_generated=module_sync_generated,
                     )
@@ -4399,6 +4468,24 @@ class ExperimentBridge(QObject):
             matrix = ExperimentBridge._coerce_front_image(attr_value, n_obj_hint=n_obj_hint)
             if matrix is not None:
                 return matrix
+        # Fallback: try resolving from canonical catalog (problems/many or problems/multi)
+        try:
+            from core.engine.runner import _resolve_problem_instance
+            canonical_prob = _resolve_problem_instance(problem_name, n_obj=n_obj_hint)
+            if canonical_prob is not None and canonical_prob is not problem:
+                fn = getattr(canonical_prob, "pareto_front", None) or getattr(canonical_prob, "_calc_pareto_front", None)
+                if callable(fn):
+                    for kwargs in ({"ref_dirs": ref_dirs}, {}):
+                        try:
+                            pf = fn(**kwargs)
+                            if pf is not None:
+                                matrix = ExperimentBridge._coerce_front_matrix(pf, n_obj_hint=n_obj_hint)
+                                if matrix is not None:
+                                    return matrix
+                        except Exception:
+                            continue
+        except Exception:
+            pass
 
         return None
 
@@ -4950,17 +5037,15 @@ class ExperimentBridge(QObject):
         }
 
         active_metrics: dict[str, Callable[[np.ndarray], float]] = {}
-        if not exp_raw_first_metrics:
-            for metric_id in selected_metric_ids:
-                spec = self.metric_specs[metric_id]
-                try:
-                    active_metrics[spec.label] = spec.factory(metric_context)
-                except Exception as exc:  # noqa: BLE001
-                    self.warning.emit(f"Metric '{spec.label}' disabled: {exc}")
+        for metric_id in selected_metric_ids:
+            spec = self.metric_specs[metric_id]
+            try:
+                active_metrics[spec.label] = spec.factory(metric_context)
+            except Exception as exc:  # noqa: BLE001
+                self.warning.emit(f"Metric '{spec.label}' disabled: {exc}")
 
-            if not active_metrics:
-                raise RuntimeError("No metric is active after initialization.")
-
+        if not active_metrics and not exp_raw_first_metrics:
+            raise RuntimeError("No metric is active after initialization.")
         valid_algorithms: list[AlgorithmSpec] = []
         for algorithm_id in selected_algorithm_ids:
             spec = self.algorithm_specs[algorithm_id]
@@ -5043,6 +5128,9 @@ class ExperimentBridge(QObject):
                 self._n_runs = n_runs
                 self._emit_partial_results = bool(emit_partial_results)
                 self._track_metric_history = bool(track_metric_history)
+                self._last_emit_time = 0.0
+                self._last_emitted_percent = -1
+                self._last_partial_emit_time = 0.0
 
             def notify(self, algorithm: Any) -> None:
                 if self.owner._cancelled:
@@ -5066,22 +5154,31 @@ class ExperimentBridge(QObject):
                     n_eval = int(getattr(algorithm, "n_gen", len(self.fe_history) + 1))
                 self.fe_history.append(n_eval)
 
-                # Emit real-time progress: n_eval / maxFE inside the current run
-                if self._emit_fn is not None:
-                    run_frac = min(1.0, n_eval / self._max_fe)
-                    base = self._done_runs_ref[0] / self._total_runs
-                    slot = 1.0 / self._total_runs
-                    percent = int(100 * (base + slot * run_frac))
-                    percent = max(0, min(99, percent))  # never 100% until completion
-                    self._emit_fn(
-                        percent,
-                        f"{self._algo_label} run {self._run_index}/{self._n_runs} - "
-                        f"{n_eval}/{self._max_fe} evals",
-                    )
+                # Emit real-time progress: throttled smoothly so high-throughput algorithms (e.g. 125 gen/s) don't flood Qt event queue
+                now_mono = time.monotonic()
+                run_frac = min(1.0, n_eval / self._max_fe)
+                base = self._done_runs_ref[0] / self._total_runs
+                slot = 1.0 / self._total_runs
+                percent = int(100 * (base + slot * run_frac))
+                percent = max(0, min(99, percent))  # never 100% until completion
+
+                if percent != self._last_emitted_percent or (now_mono - self._last_emit_time) >= 0.04:
+                    self._last_emitted_percent = percent
+                    self._last_emit_time = now_mono
+                    if self._emit_fn is not None:
+                        self._emit_fn(
+                            percent,
+                            f"{self._algo_label} run {self._run_index}/{self._n_runs} - "
+                            f"{n_eval}/{self._max_fe} evals",
+                        )
 
                 if not self._emit_partial_results:
                     return
 
+                # Throttle partial result emission to max 20 FPS (every 50ms) to ensure smooth UI animation without freezing
+                if (now_mono - self._last_partial_emit_time) < 0.05 and n_eval < self._max_fe:
+                    return
+                self._last_partial_emit_time = now_mono
                 pop_f_raw = _pop_get("F")
                 front = extract_front(pop_f_raw)
                 if front.size == 0:
@@ -5242,13 +5339,11 @@ class ExperimentBridge(QObject):
             metric_context["current_population_feasible"] = final_pop_feasible
 
             metric_values: dict[str, float] = {}
-            if not exp_raw_first_metrics:
-                for metric_name, metric_fn in active_metrics.items():
-                    try:
-                        metric_values[metric_name] = float(metric_fn(final_front))
-                    except Exception:  # noqa: BLE001
-                        metric_values[metric_name] = float("nan")
-
+            for metric_name, metric_fn in active_metrics.items():
+                try:
+                    metric_values[metric_name] = float(metric_fn(final_front))
+                except Exception:  # noqa: BLE001
+                    metric_values[metric_name] = float("nan")
             evaluations = -1
             try:
                 evaluations = int(result.algorithm.evaluator.n_eval)
@@ -5315,18 +5410,13 @@ class ExperimentBridge(QObject):
 
         llm_algorithms = [spec.label for spec in valid_algorithms if _algorithm_uses_local_llm(spec)]
         if llm_algorithms:
-            lmstudio_model = str(
-                os.environ.get("EMOPYLAB_LARC_MODEL", DEFAULT_LOCAL_LMSTUDIO_MODEL)
-            ).strip() or DEFAULT_LOCAL_LMSTUDIO_MODEL
-            lmstudio_url = str(
-                os.environ.get("EMOPYLAB_LMSTUDIO_URL") or os.environ.get("EMOPYLAB_OLLAMA_URL") or DEFAULT_LOCAL_LMSTUDIO_CHAT_URL
-            ).strip()
-            _assert_local_lmstudio_model_available(
-                model=lmstudio_model,
-                chat_url=lmstudio_url,
-                timeout_s=6.0,
-            )
-
+            from core.llm.local_llm import resolve_local_model_path
+            local_model = resolve_local_model_path(None)
+            if local_model is None or not local_model.is_file():
+                self.warning.emit(
+                    "Local GGUF model not found in models/ for LLM-driven algorithm. "
+                    "Ensure a model exists in the models/ directory."
+                )
         def run_single_trial(algo_spec: AlgorithmSpec, run_index: int) -> None:
             if self._cancelled:
                 return
@@ -6644,7 +6734,7 @@ class EmoPyLabMainWindow(QMainWindow):
         status_bar.addWidget(hw_label)
 
         # Version & Research Group Attribution
-        ver_label = QLabel('<span style="color: #64748B;">EmoPyLab v1.0.5 • </span>')
+        ver_label = QLabel('<span style="color: #64748B;">EmoPyLab v1.0.6 • </span>')
         status_bar.addPermanentWidget(ver_label)
 
         metis_link = QLabel(
@@ -6698,7 +6788,7 @@ class EmoPyLabMainWindow(QMainWindow):
         self.llm_artifact_type_combo.currentIndexChanged.connect(self._on_llm_artifact_type_changed)
         form.addRow("Artifact type:", self.llm_artifact_type_combo)
 
-        # LLM generation routes directly through local Qwen (models/qwen2.5-0.5b-instruct-q4_k_m.gguf).
+        # LLM generation routes directly through local SmolLM2 (models/SmolLM2-360M-Instruct-Q4_K_M.gguf).
         self.llm_provider_combo = None
         self.llm_api_key_edit = None
 
@@ -6939,7 +7029,7 @@ class EmoPyLabMainWindow(QMainWindow):
 
         self.llm_generated_bundle: dict[str, Any] | None = None
         self.llm_generated_bundle_validated = False
-        self.llm_api_key_source = "local_qwen"
+        self.llm_api_key_source = "local_smollm"
         self.llm_generation_history: list[dict[str, Any]] = []
         self.llm_last_survey_bundle: dict[str, Any] | None = None
         self._llm_survey_bridge_entries: list[dict[str, Any]] = []
@@ -7160,7 +7250,7 @@ class EmoPyLabMainWindow(QMainWindow):
         if getattr(self, "llm_metric_mode_summary_label", None) is None:
             return
         self.llm_metric_mode_summary_label.setText(
-            "Metric generation runs on the local Qwen model, then validates CPU/JAX runtime parity."
+            "Metric generation runs on the local SmolLM2 model, then validates CPU/JAX runtime parity."
         )
 
     def _sync_llm_problem_scope_tab_from_n_obj(self) -> None:
@@ -7201,7 +7291,7 @@ class EmoPyLabMainWindow(QMainWindow):
         token = self._llm_artifact_token()
         if token == "metric":
             return (
-                "Generate a local metric plugin and the matching _JAX variant (create_metric(context)) via local Qwen "
+                "Generate a local metric plugin and the matching _JAX variant (create_metric(context)) via local model "
                 f"({CoreLLMFormulationService.DEFAULT_LOCAL_MODEL}). The workflow validates both modules before saving to metrics/. "
                 "Use precise names when possible (HV/IGD/GD/DeltaP), and describe semantics and inputs explicitly. "
                 "Scope: one plugin per request."
@@ -7212,7 +7302,7 @@ class EmoPyLabMainWindow(QMainWindow):
                 "Build a source-linked inventory of benchmark functions and reported dimensions."
             )
         return (
-            "Generate one EmoPyLab Problem plugin (CPU + _JAX) from natural language via local Qwen "
+            "Generate one EmoPyLab Problem plugin (CPU + _JAX) from natural language via local model "
             f"({CoreLLMFormulationService.DEFAULT_LOCAL_MODEL}), with code aligned to EmoPyLab conventions. "
             "Use objective scope to set the n_obj preset. The internal prompt reinforces vectorized `Problem` code, "
             "`out['F']`, constraints in `out['G']`/`out['H']`, CPU/JAX parity, and no `if __name__ == '__main__':` block. "
@@ -8768,7 +8858,7 @@ class EmoPyLabMainWindow(QMainWindow):
             ),
             result_slot=self._on_llm_generate_task_result,
             error_slot=self._on_llm_generate_task_error,
-            busy_status="Processing request with local Qwen model (models/qwen2.5-0.5b-instruct-q4_k_m.gguf)...",
+            busy_status=f"Processing request with local model ({CoreLLMFormulationService.DEFAULT_LOCAL_MODEL})...",
             partial_slot=self._on_llm_generate_partial_update,
         )
 
@@ -8873,7 +8963,7 @@ class EmoPyLabMainWindow(QMainWindow):
         self._llm_push_history_bundle(bundle)
         model_used = str(bundle.get("model", "")).strip()
         if ok:
-            status = f"Generated and validated via local Qwen ({CoreLLMFormulationService.DEFAULT_LOCAL_MODEL})."
+            status = f"Generated and validated via local model ({CoreLLMFormulationService.DEFAULT_LOCAL_MODEL})."
             self.llm_status_label.setText(status)
             self.llm_status_label.setStyleSheet(f"color: {AppStyles.SUCCESS};")
             return
@@ -9577,22 +9667,10 @@ class EmoPyLabMainWindow(QMainWindow):
 
         result_box_layout.addLayout(result_row)
 
-        self.test_chart_view = QChartView()
-        self.test_chart_view.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.test_chart_view.setRubberBand(QChartView.RubberBand.RectangleRubberBand)
-        self.test_chart_view.setAccessibleName("Quick test visual analysis chart")
-        self.test_chart_view.setToolTip("Drag to zoom. Double-click to reset the chart view.")
+        self.test_chart_view = PlotlyWidget()
         self.test_chart_view.setMinimumHeight(180)
-
-        self.test_3d_container = QWidget()
-        self.test_3d_layout = QVBoxLayout(self.test_3d_container)
-        self.test_3d_layout.setContentsMargins(0, 0, 0, 0)
-        self.test_3d_container.setMinimumHeight(180)
-
-        self.test_chart_stack = QStackedWidget()
-        self.test_chart_stack.addWidget(self.test_chart_view)       # page 0
-        self.test_chart_stack.addWidget(self.test_3d_container)     # page 1
-        result_box_layout.addWidget(self.test_chart_stack, 1)
+        self.test_chart_view.point_clicked.connect(self._on_plotly_mcdm_clicked)
+        result_box_layout.addWidget(self.test_chart_view, 1)
 
         self.test_result_summary = QPlainTextEdit()
         self.test_result_summary.setReadOnly(True)
@@ -10443,7 +10521,7 @@ class EmoPyLabMainWindow(QMainWindow):
             item = self.exp_problem_list.item(i)
             prob_id = item.data(Qt.ItemDataRole.UserRole)
             spec = self.problem_specs.get(prob_id) if isinstance(prob_id, str) else None
-            if spec is not None and core_normalize_backend_token(spec.name) == "zdt1":
+            if spec is not None and core_normalize_backend_token(spec.name) == "dtlz1":
                 default_exp_prob_item = item
                 break
         if default_exp_prob_item is None and self.exp_problem_list.count() > 0:
@@ -13362,25 +13440,12 @@ class EmoPyLabMainWindow(QMainWindow):
         self.results_table.setStyleSheet(AppStyles.table_style("resultsTable"))
         self.results_table.cellClicked.connect(self._on_results_table_cell_clicked)
 
-        self.conv_chart_view = QChartView()
-        self.conv_chart_view.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.conv_chart_view.setRubberBand(QChartView.RubberBand.RectangleRubberBand)
-        self.conv_chart_view.setAccessibleName("Convergence analysis chart")
-        self.conv_chart_view.setToolTip("Drag to zoom. Double-click to reset the chart view.")
+        self.conv_chart_view = PlotlyWidget()
+        self.conv_chart_view.setMinimumHeight(240)
 
-        self.pareto_chart_view = QChartView()
-        self.pareto_chart_view.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.pareto_chart_view.setRubberBand(QChartView.RubberBand.RectangleRubberBand)
-        self.pareto_chart_view.setAccessibleName("Pareto front analysis chart")
-        self.pareto_chart_view.setToolTip("Drag to zoom. Double-click to reset the chart view.")
-
-        self.pareto_3d_container = QWidget()
-        self.pareto_3d_layout = QVBoxLayout(self.pareto_3d_container)
-        self.pareto_3d_layout.setContentsMargins(0, 0, 0, 0)
-
-        self.pareto_chart_stack = QStackedWidget()
-        self.pareto_chart_stack.addWidget(self.pareto_chart_view)    # page 0
-        self.pareto_chart_stack.addWidget(self.pareto_3d_container)  # page 1
+        self.pareto_chart_view = PlotlyWidget()
+        self.pareto_chart_view.setMinimumHeight(240)
+        self.pareto_chart_view.point_clicked.connect(self._on_plotly_mcdm_clicked)
 
         # Results Display Sub-Tabs: Organizes Table, Convergence, Pareto, and Side-by-Side views
         # preventing compressed/crushed charts on laptops and high-D displays.
@@ -13444,7 +13509,7 @@ class EmoPyLabMainWindow(QMainWindow):
         pareto_container = QWidget()
         pareto_layout = QVBoxLayout(pareto_container)
         pareto_layout.setContentsMargins(4, 6, 4, 4)
-        pareto_layout.addWidget(self.pareto_chart_stack, 1)
+        pareto_layout.addWidget(self.pareto_chart_view, 1)
         self.results_view_tabs.addTab(pareto_container, app_icon("bubble_chart"), "Pareto Front (2D / 3D)")
 
         layout.addWidget(self.results_view_tabs, 1)
@@ -13815,15 +13880,15 @@ class EmoPyLabMainWindow(QMainWindow):
 
         target_id = current
         if target_id is None or self.problem_combo.findData(target_id) < 0:
-            zdt_index = -1
+            dtlz1_index = -1
             for i in range(self.problem_combo.count()):
                 spec_id = self.problem_combo.itemData(i)
                 spec = self.problem_specs.get(spec_id)
-                if spec is not None and core_normalize_backend_token(spec.name) == "zdt1":
-                    zdt_index = i
+                if spec is not None and core_normalize_backend_token(spec.name) == "dtlz1":
+                    dtlz1_index = i
                     break
-            if zdt_index >= 0:
-                self.problem_combo.setCurrentIndex(zdt_index)
+            if dtlz1_index >= 0:
+                self.problem_combo.setCurrentIndex(dtlz1_index)
             elif self.problem_combo.count() > 0:
                 self.problem_combo.setCurrentIndex(0)
         else:
@@ -15040,134 +15105,12 @@ class EmoPyLabMainWindow(QMainWindow):
         except AttributeError:
             pass
 
-    def _show_3d_scatter(
-        self,
-        front: np.ndarray,
-        problem_pf: np.ndarray | None,
-        title: str,
-        anchor: bool,
-        container: QWidget,
-        container_layout: QVBoxLayout,
-        stack: QStackedWidget,
-        selected_point: np.ndarray | None = None,
-        selected_label: str = "MCDM selected",
-    ) -> None:
-        """Render an interactive 3D scatter plot with matplotlib embedded in Qt."""
-        # Clear previous canvas.
-        while container_layout.count():
-            item = container_layout.takeAt(0)
-            w = item.widget()
-            if w:
-                w.setParent(None)
-                w.deleteLater()
-
+    def _set_empty_test_result_chart(self) -> None:
         colors = StylesAppStyles.colors
         is_dark = (StylesAppStyles.current_theme == "dark")
-        text_color = "#F8FAFC" if is_dark else colors.text_primary
-        axis_color = "#F8FAFC" if is_dark else colors.text_secondary
-        pane_edge_color = "#475569" if is_dark else colors.border_light
-
-        fig = MplFigure(figsize=(6, 5), dpi=100)
-        fig.patch.set_facecolor(colors.surface)
-        ax = fig.add_subplot(111, projection="3d")
-        ax.set_facecolor(colors.surface)
-        ax.tick_params(colors=axis_color, labelsize=8)
-        ax.xaxis.label.set_color(text_color)
-        ax.yaxis.label.set_color(text_color)
-        ax.zaxis.label.set_color(text_color)
-        ax.title.set_color(text_color)
-        for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
-            try:
-                axis.pane.set_facecolor(colors.surface_soft)
-                axis.pane.set_edgecolor(pane_edge_color)
-                axis.line.set_color(axis_color)
-            except AttributeError:
-                pass
-
-        # Adjust visualization for the academic-style view (f1/f2 symmetry)
-        # azim=45 corrects the apparent x/y visual inversion
-        ax.view_init(elev=30, azim=45)
-
-        # Reference PF (crisp white in dark mode, dark in light mode)
-        if problem_pf is not None and problem_pf.ndim == 2 and problem_pf.shape[1] >= 3:
-            ax.scatter(
-                problem_pf[:, 0].tolist(), problem_pf[:, 1].tolist(), problem_pf[:, 2].tolist(),
-                c=colors.chart_reference_front, alpha=0.45, s=14, label="Reference PF", depthshade=True,
-            )
-
-        # Obtained solutions (blue)
-        ax.scatter(
-            front[:, 0].tolist(), front[:, 1].tolist(), front[:, 2].tolist(),
-            c=colors.chart_series[0], alpha=0.82, s=20, label="Obtained", edgecolors=colors.primary_dark,
-            linewidths=0.4, depthshade=True,
-        )
-
-        selected_point_3d: np.ndarray | None = None
-        try:
-            if selected_point is not None:
-                point = np.asarray(selected_point, dtype=float).reshape(-1)
-                if point.size >= 3 and np.all(np.isfinite(point[:3])):
-                    selected_point_3d = point[:3].astype(float, copy=False)
-                    ax.scatter(
-                        [float(selected_point_3d[0])],
-                        [float(selected_point_3d[1])],
-                        [float(selected_point_3d[2])],
-                        c="#DC2626",
-                        marker="*",
-                        s=180,
-                        edgecolors="#7F1D1D",
-                        linewidths=0.8,
-                        label=str(selected_label or "MCDM selected"),
-                        depthshade=True,
-                        zorder=20,
-                    )
-        except Exception:  # noqa: BLE001
-            selected_point_3d = None
-
-        ax.set_xlabel("f1", fontsize=9)
-        ax.set_ylabel("f2", fontsize=9)
-        ax.set_zlabel("f3", fontsize=9)
-        ax.set_title(title, fontsize=10, pad=10)
-        ax.legend(fontsize=8, loc="upper right")
-
-        # Ancorar na origem
-        if anchor:
-            all_data = front
-            if problem_pf is not None and problem_pf.ndim == 2 and problem_pf.shape[1] >= 3:
-                all_data = np.vstack([all_data, problem_pf[:, :3]])
-            if selected_point_3d is not None and selected_point_3d.size >= 3:
-                all_data = np.vstack([all_data, selected_point_3d.reshape(1, 3)])
-            x_max = float(np.max(all_data[:, 0])) * 1.05
-            y_max = float(np.max(all_data[:, 1])) * 1.05
-            z_max = float(np.max(all_data[:, 2])) * 1.05
-            ax.set_xlim(0, x_max)
-            ax.set_ylim(0, y_max)
-            ax.set_zlim(0, z_max)
-
-        ax.grid(True, color=colors.border_light, linewidth=0.7, alpha=0.8)
-        fig.tight_layout()
-        canvas = MplCanvas(fig)
-        container_layout.addWidget(canvas)
-        stack.setCurrentIndex(1)
-
-    def _set_empty_test_result_chart(self) -> None:
-        self.test_chart_stack.setCurrentIndex(0)
-        chart = QChart()
-        chart.setTitle("Run a test to visualize the population or convergence")
-        chart.legend().setVisible(True)
-
-        x_axis = QValueAxis()
-        x_axis.setTitleText("x")
-        x_axis.setRange(0, 1)
-
-        y_axis = QValueAxis()
-        y_axis.setTitleText("y")
-        y_axis.setRange(0, 1)
-
-        chart.addAxis(x_axis, Qt.AlignmentFlag.AlignBottom)
-        chart.addAxis(y_axis, Qt.AlignmentFlag.AlignLeft)
-        self._apply_scientific_chart_theme(chart, (x_axis, y_axis))
-        self.test_chart_view.setChart(chart)
+        bg_color = "#0F172A" if is_dark else colors.surface
+        text_color = "#94A3B8" if is_dark else colors.text_secondary
+        self.test_chart_view.set_empty("Run a test to visualize the population or convergence", bg_color=bg_color, text_color=text_color)
 
     @Slot()
     def _refresh_test_result_chart(self) -> None:
@@ -15213,19 +15156,14 @@ class EmoPyLabMainWindow(QMainWindow):
         if is_partial:
             run_label = f"{run_label} (running)"
 
-        self.test_chart_stack.setCurrentIndex(0)
-        chart = QChart()
-        chart.legend().setVisible(True)
+        colors = StylesAppStyles.colors
+        is_dark = (StylesAppStyles.current_theme == "dark")
+        bg_color = "#0F172A" if is_dark else colors.surface
+        surface_color = "#1E293B" if is_dark else colors.surface_soft
+        text_color = "#F8FAFC" if is_dark else colors.text_primary
+        grid_color = "#334155" if is_dark else colors.border_light
 
         if mode == "convergence":
-            chart.setTitle(f"Convergence - {metric_name} - {algo_name} - {run_label} | {run_timestamp}")
-            x_axis = QValueAxis()
-            x_axis.setTitleText("Function evaluations (FE)")
-            y_axis = QValueAxis()
-            y_axis.setTitleText(metric_name or "Metric")
-            chart.addAxis(x_axis, Qt.AlignmentFlag.AlignBottom)
-            chart.addAxis(y_axis, Qt.AlignmentFlag.AlignLeft)
-
             history = np.asarray(history_map.get(metric_name, []), dtype=float)
             x_history = np.asarray(run_payload.get("x_history", run_payload.get("generations", [])), dtype=float)
             if history.size == 0:
@@ -15235,23 +15173,19 @@ class EmoPyLabMainWindow(QMainWindow):
             if x_history.size != history.size:
                 x_history = np.arange(1, history.size + 1, dtype=float)
 
-            series = QLineSeries()
-            series.setName(f"{algo_name} {run_label}")
-            for x_val, y_val in zip(x_history, history, strict=False):
-                if math.isfinite(float(y_val)):
-                    series.append(float(x_val), float(y_val))
-
-            self._set_chart_series_color(series, AppStyles.chart_palette()[0])
-            chart.addSeries(series)
-            series.attachAxis(x_axis)
-            series.attachAxis(y_axis)
-            x_axis.setRange(float(np.min(x_history)), float(np.max(x_history)))
-            y_min = float(np.nanmin(history))
-            y_max = float(np.nanmax(history))
-            if y_min == y_max:
-                y_max = y_min + 1.0
-            margin = (y_max - y_min) * 0.1
-            y_axis.setRange(y_min - margin, y_max + margin)
+            fig = make_convergence_figure(
+                algo_name=algo_name,
+                run_label=run_label,
+                run_timestamp=run_timestamp,
+                metric_name=metric_name,
+                x_history=x_history,
+                history=history,
+                bg_color=bg_color,
+                text_color=text_color,
+                line_color=colors.chart_series[0],
+                grid_color=grid_color,
+            )
+            self.test_chart_view.set_figure(fig)
         else:
             front = np.asarray(run_payload.get("final_front", run_payload.get("front", [])), dtype=float)
             if front.ndim != 2 or front.size == 0 or front.shape[1] < 2:
@@ -15263,188 +15197,35 @@ class EmoPyLabMainWindow(QMainWindow):
             anchor = self.test_anchor_origin.isChecked()
             problem_pf = self._resolve_problem_pf(run_payload, use_test_context=True)
 
-            if n_obj == 2:
-                # -- m=2: Scatter 2D --
-                chart.setTitle(f"Population (f1xf2) - {problem_label} - {algo_name} {run_label} | {run_timestamp}")
-                x_axis = QValueAxis()
-                x_axis.setTitleText("f1")
-                y_axis = QValueAxis()
-                y_axis.setTitleText("f2")
-                chart.addAxis(x_axis, Qt.AlignmentFlag.AlignBottom)
-                chart.addAxis(y_axis, Qt.AlignmentFlag.AlignLeft)
+            selected_point = None
+            mcdm_decision = self._mcdm_decision_for_run(run_payload)
+            if isinstance(mcdm_decision, dict):
+                try:
+                    pt = np.asarray(mcdm_decision.get("selected_point", []), dtype=float).reshape(-1)
+                    if pt.size >= n_obj and np.all(np.isfinite(pt[:n_obj])):
+                        selected_point = pt[:n_obj]
+                except Exception:
+                    selected_point = None
 
-                obtained = QScatterSeries()
-                obtained.setName("Obtained")
-                obtained.setMarkerSize(7.0)
-                for x_val, y_val in front:
-                    obtained.append(float(x_val), float(y_val))
-                self._set_chart_series_color(obtained, AppStyles.chart_palette()[0])
-                chart.addSeries(obtained)
-                obtained.attachAxis(x_axis)
-                obtained.attachAxis(y_axis)
+            title = f"Population ({n_obj}D) - {problem_label} - {algo_name} {run_label} | {run_timestamp}"
+            fig = make_pareto_figure(
+                front=front,
+                problem_pf=problem_pf,
+                title=title,
+                anchor=anchor,
+                axis_labels=tuple(f"f{i+1}" for i in range(n_obj)),
+                selected_point=selected_point,
+                point_label="Obtained",
+                bg_color=bg_color,
+                surface_color=surface_color,
+                text_color=text_color,
+                primary_color=colors.chart_series[0],
+                pf_color=colors.chart_reference_front,
+                grid_color=grid_color,
+            )
+            self.test_chart_view.set_figure(fig)
 
-                x_values = [float(np.min(front[:, 0])), float(np.max(front[:, 0]))]
-                y_values = [float(np.min(front[:, 1])), float(np.max(front[:, 1]))]
-
-                if problem_pf is not None and problem_pf.ndim == 2 and problem_pf.shape[1] >= 2:
-                    pf_2d = problem_pf[:, :2]
-                    pf_2d = pf_2d[np.argsort(pf_2d[:, 0])]
-                    pf_series = QLineSeries()
-                    pf_series.setName("Reference PF")
-                    for x_val, y_val in pf_2d:
-                        pf_series.append(float(x_val), float(y_val))
-                    self._set_chart_series_color(
-                        pf_series,
-                        StylesAppStyles.colors.chart_reference_front,
-                        width=2.0,
-                    )
-                    chart.addSeries(pf_series)
-                    pf_series.attachAxis(x_axis)
-                    pf_series.attachAxis(y_axis)
-                    x_values.extend([float(np.min(pf_2d[:, 0])), float(np.max(pf_2d[:, 0]))])
-                    y_values.extend([float(np.min(pf_2d[:, 1])), float(np.max(pf_2d[:, 1]))])
-
-                if anchor:
-                    x_values.append(0.0)
-                    y_values.append(0.0)
-
-                x_min, x_max = min(x_values), max(x_values)
-                y_min, y_max = min(y_values), max(y_values)
-                if x_min == x_max:
-                    x_max = x_min + 1.0
-                if y_min == y_max:
-                    y_max = y_min + 1.0
-                x_margin = (x_max - x_min) * 0.05
-                y_margin = (y_max - y_min) * 0.05
-                x_lower = 0.0 if anchor else (x_min - x_margin)
-                y_lower = 0.0 if anchor else (y_min - y_margin)
-                x_axis.setRange(x_lower, x_max + x_margin)
-                y_axis.setRange(y_lower, y_max + y_margin)
-
-            elif n_obj == 3 and _HAS_MPL_3D:
-                # -- m=3: Scatter 3D interativo (matplotlib) --
-                title_3d = (
-                    f"Population 3D (f1 x f2 x f3) - {problem_label} - "
-                    f"{algo_name} {run_label} | {run_timestamp}"
-                )
-                selected_point_3d = None
-                mcdm_decision = self._mcdm_decision_for_run(run_payload)
-                if isinstance(mcdm_decision, dict):
-                    try:
-                        point = np.asarray(mcdm_decision.get("selected_point", []), dtype=float).reshape(-1)
-                        if point.size >= 3 and np.all(np.isfinite(point[:3])):
-                            selected_point_3d = point[:3]
-                    except Exception:  # noqa: BLE001
-                        selected_point_3d = None
-                self._show_3d_scatter(
-                    front[:, :3], problem_pf, title_3d, anchor,
-                    self.test_3d_container, self.test_3d_layout, self.test_chart_stack,
-                    selected_point=selected_point_3d,
-                    selected_label="MCDM selected",
-                )
-                # Metric summary (built below)
-                summary_lines = [
-                    f"Problem: {problem_label}",
-                    f"Algorithm: {algo_name}",
-                    f"Trial: {run_payload.get('run_index', '-')}",
-                    f"Timestamp (en-US): {run_timestamp}",
-                    f"Backend: {run_payload.get('backend', '-')}",
-                    f"M: {run_payload.get('n_obj', '-')}",
-                    f"D: {run_payload.get('n_var', '-')}",
-                ]
-                n_eval = _positive_int(run_payload.get("n_eval", run_payload.get("evaluations", 0)), 0, minimum=0)
-                if is_partial:
-                    eval_label = f" ({n_eval} evals)" if n_eval > 0 else ""
-                    summary_lines.append(f"Status: running{eval_label}")
-                elif n_eval > 0:
-                    summary_lines.append(f"Evaluations: {n_eval}")
-                for metric, value in run_payload.get("metrics", {}).items():
-                    summary_lines.append(f"{metric}: {_fmt_number(_float_or_none(value), 6)}")
-                speedup = _float_or_none(run_payload.get("profile_speedup_gpu_vs_cpu"))
-                if speedup is not None and math.isfinite(speedup):
-                    summary_lines.append(f"GPU speedup vs CPU: x{speedup:.3f}")
-                self.test_result_summary.setPlainText("\n".join(summary_lines))
-                return
-
-            else:
-                # -- m>=4: Parallel Coordinates (style used in classic EMO GUIs) --
-                chart.setTitle(
-                    f"Parallel Coordinates ({n_obj} obj) - {problem_label} - "
-                    f"{algo_name} {run_label} | {run_timestamp}"
-                )
-                x_axis = QValueAxis()
-                x_axis.setTitleText("Dimension No.")
-                x_axis.setRange(0.5, n_obj + 0.5)
-                x_axis.setTickCount(n_obj)
-                x_axis.setLabelFormat("%d")
-                y_axis = QValueAxis()
-                y_axis.setTitleText("Value")
-                chart.addAxis(x_axis, Qt.AlignmentFlag.AlignBottom)
-                chart.addAxis(y_axis, Qt.AlignmentFlag.AlignLeft)
-
-                y_min_val = float(np.min(front)) if anchor else float(np.min(front))
-                y_max_val = float(np.max(front))
-
-                # Draw reference PF first (background)
-                if problem_pf is not None and problem_pf.ndim == 2 and problem_pf.shape[1] == n_obj:
-                    pf_color = QColor(StylesAppStyles.colors.chart_reference_front)
-                    pf_color.setAlpha(72)
-                    pf_pen = QPen(pf_color, 1.0)
-                    pf_step = max(1, len(problem_pf) // 250)
-                    for row in problem_pf[::pf_step]:
-                        s = QLineSeries()
-                        s.setPen(pf_pen)
-                        for dim_idx in range(n_obj):
-                            s.append(float(dim_idx + 1), float(row[dim_idx]))
-                        chart.addSeries(s)
-                        s.attachAxis(x_axis)
-                        s.attachAxis(y_axis)
-                    y_min_val = min(y_min_val, float(np.min(problem_pf)))
-                    y_max_val = max(y_max_val, float(np.max(problem_pf)))
-                    # Invisible series for legend
-                    pf_legend = QLineSeries()
-                    pf_legend.setName("Reference PF")
-                    pf_legend.setPen(QPen(QColor(StylesAppStyles.colors.chart_reference_front), 2.0))
-                    pf_legend.append(0, 0)
-                    chart.addSeries(pf_legend)
-                    pf_legend.attachAxis(x_axis)
-                    pf_legend.attachAxis(y_axis)
-
-                # Draw obtained solutions
-                obtained_color = QColor(AppStyles.chart_palette()[0])
-                obtained_color.setAlpha(160)
-                obtained_pen = QPen(obtained_color, 1.5)
-                front_step = max(1, len(front) // 250)
-                for row in front[::front_step]:
-                    s = QLineSeries()
-                    s.setPen(obtained_pen)
-                    for dim_idx in range(n_obj):
-                        s.append(float(dim_idx + 1), float(row[dim_idx]))
-                    chart.addSeries(s)
-                    s.attachAxis(x_axis)
-                    s.attachAxis(y_axis)
-                obt_legend = QLineSeries()
-                obt_legend.setName("Obtained")
-                obt_legend.setPen(QPen(QColor(AppStyles.chart_palette()[0]), 2.5))
-                obt_legend.append(0, 0)
-                chart.addSeries(obt_legend)
-                obt_legend.attachAxis(x_axis)
-                obt_legend.attachAxis(y_axis)
-
-                # Hide all legend entries except the explicit legend helper series
-                for s in chart.series():
-                    if not s.name():
-                        chart.legend().markers(s)[0].setVisible(False) if chart.legend().markers(s) else None
-
-                if anchor:
-                    y_min_val = min(y_min_val, 0.0)
-
-                if y_min_val == y_max_val:
-                    y_max_val = y_min_val + 1.0
-                y_margin = (y_max_val - y_min_val) * 0.05
-                y_lower = 0.0 if anchor else (y_min_val - y_margin)
-                y_axis.setRange(y_lower, y_max_val + y_margin)
-
+        # Update summary text
         summary_lines = [
             f"Problem: {problem_label}",
             f"Algorithm: {algo_name}",
@@ -15466,8 +15247,6 @@ class EmoPyLabMainWindow(QMainWindow):
         if speedup is not None and math.isfinite(speedup):
             summary_lines.append(f"GPU speedup vs CPU: x{speedup:.3f}")
         self.test_result_summary.setPlainText("\n".join(summary_lines))
-        self._apply_scientific_chart_theme(chart, (x_axis, y_axis))
-        self.test_chart_view.setChart(chart)
 
     def _collect_test_config(self) -> dict[str, Any] | None:
         """Collect configuration for Test Module (1 algorithm, 1 problem, 1 run)."""
@@ -15638,8 +15417,12 @@ class EmoPyLabMainWindow(QMainWindow):
     def _on_test_progress(self, percent: int, message: str) -> None:
         """Handle progress updates from Test Module worker."""
         self.progress.setValue(percent)
-        self._append_log(message)
-
+        # Avoid choking the Qt text layout engine by only logging at milestone intervals (start, finish, or every 10%)
+        if not hasattr(self, "_last_test_log_percent"):
+            self._last_test_log_percent = -1
+        if percent == 0 or percent == 100 or percent >= self._last_test_log_percent + 10:
+            self._last_test_log_percent = percent
+            self._append_log(message)
     @Slot(object)
     def _on_test_run_ready(self, payload: dict[str, Any]) -> None:
         """Handle individual run result from Test Module worker."""
@@ -16463,41 +16246,19 @@ class EmoPyLabMainWindow(QMainWindow):
         self._refresh_pareto_chart()
 
     def _set_empty_convergence_chart(self, note: str | None = None) -> None:
-        chart = QChart()
-        chart.setTitle(str(note).strip() if str(note or "").strip() else "Convergence")
-        chart.legend().setVisible(True)
-
-        x_axis = QValueAxis()
-        x_axis.setTitleText("Function Evaluations (FE)")
-        x_axis.setRange(0, 1)
-
-        y_axis = QValueAxis()
-        y_axis.setTitleText("Metric")
-        y_axis.setRange(0, 1)
-
-        chart.addAxis(x_axis, Qt.AlignmentFlag.AlignBottom)
-        chart.addAxis(y_axis, Qt.AlignmentFlag.AlignLeft)
-        self._apply_scientific_chart_theme(chart, (x_axis, y_axis))
-        self.conv_chart_view.setChart(chart)
+        colors = StylesAppStyles.colors
+        is_dark = (StylesAppStyles.current_theme == "dark")
+        bg_color = "#0F172A" if is_dark else colors.surface
+        text_color = "#94A3B8" if is_dark else colors.text_secondary
+        msg = str(note).strip() if str(note or "").strip() else "Convergence"
+        self.conv_chart_view.set_empty(msg, bg_color=bg_color, text_color=text_color)
 
     def _set_empty_pareto_chart(self) -> None:
-        self.pareto_chart_stack.setCurrentIndex(0)
-        chart = QChart()
-        chart.setTitle("Pareto front (f1 x f2)")
-        chart.legend().setVisible(True)
-
-        x_axis = QValueAxis()
-        x_axis.setTitleText("f1")
-        x_axis.setRange(0, 1)
-
-        y_axis = QValueAxis()
-        y_axis.setTitleText("f2")
-        y_axis.setRange(0, 1)
-
-        chart.addAxis(x_axis, Qt.AlignmentFlag.AlignBottom)
-        chart.addAxis(y_axis, Qt.AlignmentFlag.AlignLeft)
-        self._apply_scientific_chart_theme(chart, (x_axis, y_axis))
-        self.pareto_chart_view.setChart(chart)
+        colors = StylesAppStyles.colors
+        is_dark = (StylesAppStyles.current_theme == "dark")
+        bg_color = "#0F172A" if is_dark else colors.surface
+        text_color = "#94A3B8" if is_dark else colors.text_secondary
+        self.pareto_chart_view.set_empty("Pareto front (f1 x f2)", bg_color=bg_color, text_color=text_color)
         self._refresh_mcdm_details_panel(None)
 
     @Slot()
@@ -16510,27 +16271,17 @@ class EmoPyLabMainWindow(QMainWindow):
         selected_problem_id = self._selected_plot_problem_id()
         selected_problem_label = self.problem_plot_combo.currentText().strip()
 
-        chart = QChart()
-        if selected_problem_id is None:
-            chart.setTitle(f"Convergence - {metric_name}")
-        else:
-            chart.setTitle(f"Convergence - {metric_name} - {selected_problem_label}")
-        chart.legend().setVisible(True)
-
-        x_axis = QValueAxis()
-        x_axis.setTitleText("Function Evaluations (FE)")
-        y_axis = QValueAxis()
-        y_axis.setTitleText(metric_name)
-
-        chart.addAxis(x_axis, Qt.AlignmentFlag.AlignBottom)
-        chart.addAxis(y_axis, Qt.AlignmentFlag.AlignLeft)
-
-        x_min, x_max = float("inf"), float("-inf")
-        y_min, y_max = float("inf"), float("-inf")
+        colors = StylesAppStyles.colors
+        is_dark = (StylesAppStyles.current_theme == "dark")
+        bg_color = "#0F172A" if is_dark else colors.surface
+        text_color = "#F8FAFC" if is_dark else colors.text_primary
+        grid_color = "#334155" if is_dark else colors.border_light
         chart_palette = AppStyles.chart_palette()
 
+        series_data: list[dict[str, Any]] = []
         any_selected_runs = False
         any_history_found = False
+
         for algo_index, (algo_name, runs) in enumerate(self.results.items()):
             deduped_runs: list[dict[str, Any]] = []
             seen_keys: set[str] = set()
@@ -16556,12 +16307,10 @@ class EmoPyLabMainWindow(QMainWindow):
             for run in runs:
                 values = np.asarray(run.get("history", {}).get(metric_name, []), dtype=float)
                 x_hist = np.asarray(run.get("x_history", run.get("generations", [])), dtype=float)
-
                 if values.size == 0:
                     continue
                 if x_hist.size != values.size:
                     x_hist = np.arange(1, values.size + 1, dtype=float)
-
                 histories.append(values)
                 generations.append(x_hist)
                 any_history_found = True
@@ -16580,54 +16329,31 @@ class EmoPyLabMainWindow(QMainWindow):
             with np.errstate(invalid="ignore"):
                 mean_values = np.nanmean(matrix, axis=0)
 
-            series = QLineSeries()
-            series.setName(algo_name)
-            for x_val, y_val in zip(x_values, mean_values, strict=False):
-                if math.isfinite(float(y_val)):
-                    series.append(float(x_val), float(y_val))
-                    x_min = min(x_min, float(x_val))
-                    x_max = max(x_max, float(x_val))
-                    y_min = min(y_min, float(y_val))
-                    y_max = max(y_max, float(y_val))
+            series_data.append({
+                "algo": algo_name,
+                "x": x_values.tolist(),
+                "y": mean_values.tolist(),
+            })
 
-            self._set_chart_series_color(
-                series,
-                chart_palette[algo_index % len(chart_palette)],
-                width=2.0,
-            )
-            chart.addSeries(series)
-            series.attachAxis(x_axis)
-            series.attachAxis(y_axis)
-
-        if not math.isfinite(x_min) or not math.isfinite(y_min):
+        if not series_data:
             if any_selected_runs and not any_history_found:
                 self._set_empty_convergence_chart(
                     "Convergence - history unavailable for raw-first experiment payloads"
                 )
             else:
                 self._set_empty_convergence_chart()
-            try:
-                self.conv_chart_view.setToolTip(
-                    "The selected runs do not contain per-generation metric history. "
-                    "This is expected for Experiment raw-first results (__exp_raw_first_metrics__)."
-                    if any_selected_runs and not any_history_found
-                    else ""
-                )
-            except Exception:  # noqa: BLE001
-                pass
             return
 
-        if x_min == x_max:
-            x_max = x_min + 1.0
-        if y_min == y_max:
-            y_max = y_min + 1.0
-
-        x_axis.setRange(x_min, x_max)
-        margin = (y_max - y_min) * 0.1
-        y_axis.setRange(y_min - margin, y_max + margin)
-
-        self._apply_scientific_chart_theme(chart, (x_axis, y_axis))
-        self.conv_chart_view.setChart(chart)
+        fig = make_multi_convergence_figure(
+            series_data=series_data,
+            metric_name=metric_name,
+            title_suffix=selected_problem_label if selected_problem_id is not None else "",
+            bg_color=bg_color,
+            text_color=text_color,
+            palette=chart_palette,
+            grid_color=grid_color,
+        )
+        self.conv_chart_view.set_figure(fig)
 
     @Slot()
     def _refresh_pareto_chart(self) -> None:
@@ -16646,6 +16372,7 @@ class EmoPyLabMainWindow(QMainWindow):
         if front.ndim != 2 or front.size == 0 or front.shape[1] < 2:
             self._set_empty_pareto_chart()
             return
+
         try:
             n_obj = front.shape[1]
             anchor = self.test_anchor_origin.isChecked()
@@ -16653,203 +16380,99 @@ class EmoPyLabMainWindow(QMainWindow):
             if not run_timestamp:
                 run_timestamp = format_timestamp_en_us()
 
-            self.pareto_chart_stack.setCurrentIndex(0)
-            chart = QChart()
             problem_label = str(run_payload.get("problem", "problem"))
-            chart.legend().setVisible(True)
-
             problem_pf = self._resolve_problem_pf(run_payload, use_test_context=False)
 
-            if n_obj == 2:
-                # -- m=2: Scatter 2D --
-                chart.setTitle(f"Pareto front (f1xf2) - {problem_label} - {algo_name} trial {run_payload.get('run_index', '-')} | {run_timestamp}")
-                x_axis = QValueAxis()
-                x_axis.setTitleText("f1")
-                y_axis = QValueAxis()
-                y_axis.setTitleText("f2")
-                chart.addAxis(x_axis, Qt.AlignmentFlag.AlignBottom)
-                chart.addAxis(y_axis, Qt.AlignmentFlag.AlignLeft)
+            selected_point = None
+            mcdm_decision = self._mcdm_decision_for_run(run_payload)
+            if isinstance(mcdm_decision, dict):
+                try:
+                    pt = np.asarray(mcdm_decision.get("selected_point", []), dtype=float).reshape(-1)
+                    if pt.size >= n_obj and np.all(np.isfinite(pt[:n_obj])):
+                        selected_point = pt[:n_obj]
+                except Exception:
+                    selected_point = None
 
-                run_series = QScatterSeries()
-                run_series.setName("Obtained")
-                run_series.setMarkerSize(7.0)
-                for x_val, y_val in front:
-                    run_series.append(float(x_val), float(y_val))
-                self._set_chart_series_color(run_series, AppStyles.chart_palette()[0])
-                chart.addSeries(run_series)
-                run_series.attachAxis(x_axis)
-                run_series.attachAxis(y_axis)
+            colors = StylesAppStyles.colors
+            is_dark = (StylesAppStyles.current_theme == "dark")
+            bg_color = "#0F172A" if is_dark else colors.surface
+            surface_color = "#1E293B" if is_dark else colors.surface_soft
+            text_color = "#F8FAFC" if is_dark else colors.text_primary
+            grid_color = "#334155" if is_dark else colors.border_light
 
-                x_values = [float(np.min(front[:, 0])), float(np.max(front[:, 0]))]
-                y_values = [float(np.min(front[:, 1])), float(np.max(front[:, 1]))]
-
-                mcdm_decision = self._mcdm_decision_for_run(run_payload)
-                if isinstance(mcdm_decision, dict):
-                    selected_point = np.asarray(mcdm_decision.get("selected_point", []), dtype=float).reshape(-1)
-                    if selected_point.size >= 2 and np.all(np.isfinite(selected_point[:2])):
-                        mcdm_series = QScatterSeries()
-                        mcdm_series.setName("MCDM selected")
-                        mcdm_series.setMarkerSize(11.0)
-                        try:
-                            mcdm_series.setColor(QColor(220, 38, 38))
-                        except Exception:  # noqa: BLE001
-                            pass
-                        mcdm_series.append(float(selected_point[0]), float(selected_point[1]))
-                        chart.addSeries(mcdm_series)
-                        mcdm_series.attachAxis(x_axis)
-                        mcdm_series.attachAxis(y_axis)
-                        x_values.append(float(selected_point[0]))
-                        y_values.append(float(selected_point[1]))
-
-                if problem_pf is not None and problem_pf.ndim == 2 and problem_pf.shape[1] >= 2:
-                    pf2d = problem_pf[:, :2]
-                    pf2d = pf2d[np.argsort(pf2d[:, 0])]
-                    pf_series = QLineSeries()
-                    pf_series.setName("Reference PF")
-                    for x_val, y_val in pf2d:
-                        pf_series.append(float(x_val), float(y_val))
-                    self._set_chart_series_color(
-                        pf_series,
-                        StylesAppStyles.colors.chart_reference_front,
-                        width=2.0,
-                    )
-                    chart.addSeries(pf_series)
-                    pf_series.attachAxis(x_axis)
-                    pf_series.attachAxis(y_axis)
-                    x_values.extend([float(np.min(pf2d[:, 0])), float(np.max(pf2d[:, 0]))])
-                    y_values.extend([float(np.min(pf2d[:, 1])), float(np.max(pf2d[:, 1]))])
-
-                if anchor:
-                    x_values.append(0.0)
-                    y_values.append(0.0)
-
-                x_min, x_max = min(x_values), max(x_values)
-                y_min, y_max = min(y_values), max(y_values)
-                if x_min == x_max:
-                    x_max = x_min + 1.0
-                if y_min == y_max:
-                    y_max = y_min + 1.0
-                x_margin = (x_max - x_min) * 0.05
-                y_margin = (y_max - y_min) * 0.05
-                x_lower = 0.0 if anchor else (x_min - x_margin)
-                y_lower = 0.0 if anchor else (y_min - y_margin)
-                x_axis.setRange(x_lower, x_max + x_margin)
-                y_axis.setRange(y_lower, y_max + y_margin)
-
-            elif n_obj == 3 and _HAS_MPL_3D:
-                # -- m=3: Scatter 3D interativo (matplotlib) --
-                title_3d = (
-                    f"Pareto 3D (f1 x f2 x f3) - {problem_label} - "
-                    f"{algo_name} trial {run_payload.get('run_index', '-')} | {run_timestamp}"
-                )
-                selected_point_3d = None
-                mcdm_decision = self._mcdm_decision_for_run(run_payload)
-                if isinstance(mcdm_decision, dict):
-                    try:
-                        point = np.asarray(mcdm_decision.get("selected_point", []), dtype=float).reshape(-1)
-                        if point.size >= 3 and np.all(np.isfinite(point[:3])):
-                            selected_point_3d = point[:3]
-                    except Exception:  # noqa: BLE001
-                        selected_point_3d = None
-                self._show_3d_scatter(
-                    front[:, :3], problem_pf, title_3d, anchor,
-                    self.pareto_3d_container, self.pareto_3d_layout, self.pareto_chart_stack,
-                    selected_point=selected_point_3d,
-                    selected_label="MCDM selected",
-                )
-                return
-
-            else:
-                # -- m>=4 (and m=3 fallback without mpl 3D): Parallel Coordinates --
-                chart.setTitle(
-                    f"Parallel Coordinates ({n_obj} obj) - {problem_label} - "
-                    f"{algo_name} trial {run_payload.get('run_index', '-')} | {run_timestamp}"
-                )
-                x_axis = QValueAxis()
-                x_axis.setTitleText("Dimension No.")
-                x_axis.setRange(0.5, n_obj + 0.5)
-                x_axis.setTickCount(n_obj)
-                x_axis.setLabelFormat("%d")
-                y_axis = QValueAxis()
-                y_axis.setTitleText("Value")
-                chart.addAxis(x_axis, Qt.AlignmentFlag.AlignBottom)
-                chart.addAxis(y_axis, Qt.AlignmentFlag.AlignLeft)
-
-                y_min_val = float(np.min(front))
-                y_max_val = float(np.max(front))
-
-                if problem_pf is not None and problem_pf.ndim == 2 and problem_pf.shape[1] == n_obj:
-                    pf_color = QColor(StylesAppStyles.colors.chart_reference_front)
-                    pf_color.setAlpha(72)
-                    pf_pen = QPen(pf_color, 1.0)
-                    pf_step = max(1, len(problem_pf) // 250)
-                    for row in problem_pf[::pf_step]:
-                        s = QLineSeries()
-                        s.setPen(pf_pen)
-                        for dim_idx in range(n_obj):
-                            s.append(float(dim_idx + 1), float(row[dim_idx]))
-                        chart.addSeries(s)
-                        s.attachAxis(x_axis)
-                        s.attachAxis(y_axis)
-                    y_min_val = min(y_min_val, float(np.min(problem_pf)))
-                    y_max_val = max(y_max_val, float(np.max(problem_pf)))
-                    pf_legend = QLineSeries()
-                    pf_legend.setName("Reference PF")
-                    pf_legend.setPen(QPen(QColor(StylesAppStyles.colors.chart_reference_front), 2.0))
-                    pf_legend.append(0, 0)
-                    chart.addSeries(pf_legend)
-                    pf_legend.attachAxis(x_axis)
-                    pf_legend.attachAxis(y_axis)
-
-                obtained_color = QColor(AppStyles.chart_palette()[0])
-                obtained_color.setAlpha(160)
-                obtained_pen = QPen(obtained_color, 1.5)
-                front_step = max(1, len(front) // 250)
-                for row in front[::front_step]:
-                    s = QLineSeries()
-                    s.setPen(obtained_pen)
-                    for dim_idx in range(n_obj):
-                        s.append(float(dim_idx + 1), float(row[dim_idx]))
-                    chart.addSeries(s)
-                    s.attachAxis(x_axis)
-                    s.attachAxis(y_axis)
-                obt_legend = QLineSeries()
-                obt_legend.setName("Obtained")
-                obt_legend.setPen(QPen(QColor(AppStyles.chart_palette()[0]), 2.5))
-                obt_legend.append(0, 0)
-                chart.addSeries(obt_legend)
-                obt_legend.attachAxis(x_axis)
-                obt_legend.attachAxis(y_axis)
-
-                for s in chart.series():
-                    if not s.name():
-                        markers = chart.legend().markers(s)
-                        if markers:
-                            markers[0].setVisible(False)
-
-                if anchor:
-                    y_min_val = min(y_min_val, 0.0)
-
-                if y_min_val == y_max_val:
-                    y_max_val = y_min_val + 1.0
-                y_margin = (y_max_val - y_min_val) * 0.05
-                y_lower = 0.0 if anchor else (y_min_val - y_margin)
-                y_axis.setRange(y_lower, y_max_val + y_margin)
-
-            self._apply_scientific_chart_theme(chart, (x_axis, y_axis))
-            self.pareto_chart_view.setChart(chart)
+            title = f"Pareto ({n_obj}D) - {problem_label} - {algo_name} trial {run_payload.get('run_index', '-')} | {run_timestamp}"
+            fig = make_pareto_figure(
+                front=front,
+                problem_pf=problem_pf,
+                title=title,
+                anchor=anchor,
+                axis_labels=tuple(f"f{i+1}" for i in range(n_obj)),
+                selected_point=selected_point,
+                point_label="Obtained",
+                bg_color=bg_color,
+                surface_color=surface_color,
+                text_color=text_color,
+                primary_color=colors.chart_series[0],
+                pf_color=colors.chart_reference_front,
+                grid_color=grid_color,
+            )
+            self.pareto_chart_view.set_figure(fig)
         except Exception as exc:  # noqa: BLE001
             self._set_empty_pareto_chart()
             msg = f"Pareto chart refresh failed: {exc}"
             try:
                 self._append_log(f"Warning: {msg}")
-            except Exception:  # noqa: BLE001
-                pass
-            try:
-                self.pareto_chart_view.setToolTip(msg)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
 
+    @Slot(int)
+    def _on_plotly_mcdm_clicked(self, point_index: int) -> None:
+        """Handle user clicking on a solution in the Plotly Pareto front."""
+        run_payload = self._mcdm_current_plot_run_payload()
+        if not run_payload:
+            selected_algo_name = self.test_algo_combo.currentText().strip()
+            runs = self._test_runs_for_selection(selected_algo_name)
+            if runs:
+                run_payload = runs[0]
+        if not run_payload:
+            return
+
+        front = np.asarray(run_payload.get("final_front", run_payload.get("front", [])), dtype=float)
+        if front.ndim != 2 or point_index < 0 or point_index >= front.shape[0]:
+            return
+
+        selected = front[point_index]
+        decision_snapshot = {
+            "method_id": "manual_click",
+            "method_label": "Direct Plot Selection",
+            "weights_input": "",
+            "weights_normalized": [],
+            "score": 1.0,
+            "front_index": point_index,
+            "selected_point": selected.tolist(),
+            "n_points_front": int(front.shape[0]),
+            "n_obj": int(front.shape[1]),
+            "run_ref": {
+                "algorithm": str(run_payload.get("algorithm", "")),
+                "algorithm_id": str(run_payload.get("algorithm_id", "")),
+                "problem": str(run_payload.get("problem", "")),
+                "problem_id": str(run_payload.get("problem_id", "")),
+                "run_index": run_payload.get("run_index"),
+                "seed": run_payload.get("seed"),
+                "timestamp_iso": str(run_payload.get("timestamp_iso", "")),
+                "timestamp_en_us": str(run_payload.get("timestamp_en_us", "")),
+                "timestamp_epoch": _float_or_none(run_payload.get("timestamp_epoch")),
+            },
+        }
+        self.mcdm_last_decision = dict(decision_snapshot)
+        values_label = ", ".join(f"f{i+1}={v:.6g}" for i, v in enumerate(selected))
+        self.mcdm_result_label.setText(
+            f"MCDM result (Manual Selection): point #{point_index + 1} | {values_label}"
+        )
+        self.mcdm_result_label.setStyleSheet(AppStyles.status_pill_style(AppStyles.SUCCESS))
+        self._refresh_mcdm_details_panel(run_payload)
+        self._refresh_pareto_chart()
+        self._refresh_test_result_chart()
     def _sync_payload_to_analysis_workspace(self, payload: dict[str, Any]) -> int:
         """Merge a payload into the Analysis/MCDM workspace without forcing a tab switch."""
         if not isinstance(payload, dict):
@@ -17667,8 +17290,8 @@ def main() -> int:
 
     splash.update_progress(
         45,
-        "Loading Local AI Engine (Qwen2.5-0.5B GGUF / MLX)...",
-        "Loading local offline Qwen2.5 (models/) without blocking GUI",
+        "Loading Local AI Engine (SmolLM2-360M GGUF)...",
+        "Loading local offline SmolLM2-360M (models/) without blocking GUI",
         step_text="Phase 2/4",
     )
 

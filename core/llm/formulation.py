@@ -15,10 +15,10 @@ class LLMFormulationService:
     """LLM-assisted formulation helper for EmoPyLab artifact generation and validation."""
 
     TEMPLATE_PROVIDER = "template"
-    LOCAL_PROVIDER = "local_qwen"
+    LOCAL_PROVIDER = "local_smollm"
     DEFAULT_PROVIDER = LOCAL_PROVIDER
 
-    DEFAULT_LOCAL_MODEL = "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+    DEFAULT_LOCAL_MODEL = "SmolLM2-360M-Instruct-Q4_K_M.gguf"
     METRIC_MODE_CANONICAL_WRAPPER = "canonical_wrapper"
     METRIC_MODE_GITHUB_CONVERTED = "github_converted"
 
@@ -1104,7 +1104,7 @@ class LLMFormulationService:
                 "kind": "llm_stream",
                 "phase": "spec_first",
                 "event": "stage_start",
-                "message": "Spec-first: querying local Qwen for refined generation spec.",
+                "message": "Spec-first: querying local model for refined generation spec.",
             },
         )
         payload = None
@@ -1131,7 +1131,7 @@ class LLMFormulationService:
                 n_obj=n_obj_default,
             )
         payload = dict(payload)
-        payload["mode"] = "local_qwen_spec_first"
+        payload["mode"] = "local_smollm_spec_first"
         payload["model"] = cls.DEFAULT_LOCAL_MODEL
         return cast(
             dict[str, Any],
@@ -1395,7 +1395,7 @@ class LLMFormulationService:
                 "kind": "llm_stream",
                 "phase": "generation",
                 "event": "stage_start",
-                "message": f"Generating {artifact_type} code via local Qwen ({cls.DEFAULT_LOCAL_MODEL}).",
+                "message": f"Generating {artifact_type} code via local model ({cls.DEFAULT_LOCAL_MODEL}).",
             },
         )
         payload = None

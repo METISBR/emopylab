@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 """
 UF benchmark family (CEC 2009) converted for local EmoPyLab use.

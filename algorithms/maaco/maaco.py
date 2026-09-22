@@ -32,8 +32,7 @@ MaACO combines four symbiotic components:
    scores over recent hypervolume improvements.
 3. **LLM Meta-Controller** (``core.llm.LocalLLMClient``):
    Every ``llm_period`` generations, queries the local
-   ``Qwen2.5-0.5B-Instruct-4bit`` model served via ``mlx-lm`` on
-   Apple Silicon (or ``llama-cpp-python`` in-process on Windows/Linux).
+   ``SmolLM2-360M-Instruct-Q4_K_M`` model served in-process via GGUF / mlx-lm.
    The LLM proposes:
      - An operator preference (``operator_choice``)
      - Fine-grained operator parameters (``operator_params``)
@@ -66,6 +65,7 @@ from core.llm import (
     DEFAULT_MODEL as _DEFAULT_LLM_MODEL,
     LocalLLMClient,
 )
+from core.llm.local_llm import resolve_local_model_path as _resolve_gguf
 
 from .bandit import UCB1OperatorBandit
 from .operators import OPERATOR_NAMES, apply_operator
@@ -87,24 +87,31 @@ class LLMPolicyError(RuntimeError):
         self.status = status
         self.event = dict(event or {})
 
+def _default_partitions_for_dim(m: int) -> int:
+    if m <= 3:
+        return 12
+    if m <= 5:
+        return 6
+    if m <= 8:
+        return 3
+    return 2
 
 # ---------------------------------------------------------------------------
 # LLM Prompt Template (extended for operator selection + bandit feedback)
 # ---------------------------------------------------------------------------
-
 _LLM_PROMPT_TEMPLATE = """Given multi-objective optimization state:
-- Generation: {generation}, Objectives: {n_obj}
+- Generation: {generation}, Objectives: {n_obj}, Population: {pop_size}
 - Archive front size: {front_size}/{ref_count}
 - Stagnation count: {stagnation}
 - Operator reward history: {bandit_means}
 
-You must output ONLY valid JSON matching this exact structure:
-{{"operator_choice": "llm_de", "operator_params": {{"F": 0.8, "CR": 0.9, "eta_c": 20.0, "eta_m": 20.0, "q": 1.0, "xi": 0.85}}, "apd_alpha": 2.0}}
+You are an adaptive meta-heuristic semantic designer. Output ONLY valid JSON matching this exact structure:
+{{"operator_choice": "llm_de", "operator_params": {{"F": 0.8, "CR": 0.9, "eta_c": 20.0, "eta_m": 20.0, "q": 1.0, "xi": 0.85}}, "apd_alpha": 2.0, "apd_profile": "convex_barrier", "topology_estimate": "multimodal"}}
 
-Replace "llm_de" with one of ["llm_sbx", "llm_de", "llm_perturb", "acor_mixture"]:
-- If stagnation > 0: use "llm_de" with F=0.8, CR=0.9
-- If front_size < {ref_count}/2: use "acor_mixture" with q=1.2
-- Else: use "llm_sbx" (eta_c=20.0) or "llm_perturb" (eta_m=20.0)
+Choices:
+- "operator_choice": ["llm_sbx", "llm_de", "llm_perturb", "acor_mixture"]
+- "apd_profile": ["convex_barrier", "sigmoidal_barrier", "exponential_barrier", "diversity_boost"]
+- "topology_estimate": ["regular", "degenerate", "disconnected", "multimodal"]
 """
 
 
@@ -115,25 +122,40 @@ Replace "llm_de" with one of ["llm_sbx", "llm_de", "llm_perturb", "acor_mixture"
 def _call_llm(stats: Dict[str, Any],
               client: Optional[LocalLLMClient] = None) -> Optional[Dict[str, Any]]:
     """Dispatch the state to the LLM and return the parsed JSON proposal."""
-    if client is None:
-        client = LocalLLMClient()
-    prompt = _LLM_PROMPT_TEMPLATE.format(
-        generation=stats.get("generation", 0),
-        n_obj=stats.get("n_obj", 2),
-        pop_size=stats.get("pop_size", 100),
-        front_size=stats.get("front_size", 0),
-        ref_count=stats.get("ref_count", 0),
-        stagnation=stats.get("stagnation", 0),
-        bandit_means=json.dumps(stats.get("bandit_means", {})),
-    )
-    proposal = client.json_call(
-        prompt,
-        system="You are an adaptive operator selection policy. Output ONLY JSON.",
-    )
-    if isinstance(proposal, dict):
-        return proposal
-    return None
+    try:
+        if client is None:
+            client = LocalLLMClient(
+                force_inprocess=True,
+                model_path=_resolve_gguf(None),
+            )
+        prompt = _LLM_PROMPT_TEMPLATE.format(
+            generation=stats.get("generation", 0),
+            n_obj=stats.get("n_obj", 2),
+            pop_size=stats.get("pop_size", 100),
+            front_size=stats.get("front_size", 0),
+            ref_count=stats.get("ref_count", 0),
+            stagnation=stats.get("stagnation", 0),
+            bandit_means=json.dumps(stats.get("bandit_means", {})),
+        )
+        proposal = client.json_call(
+            prompt,
+            system="You are an adaptive operator selection policy. Output ONLY JSON.",
+        )
+        if isinstance(proposal, dict):
+            return proposal
+    except Exception:
+        pass
 
+    # Deterministic heuristic fallback policy
+    stag = stats.get("stagnation", 0)
+    fs = stats.get("front_size", 0)
+    rc = max(1, stats.get("ref_count", 100))
+    if stag > 2:
+        return {"operator_choice": "llm_de", "operator_params": {"F": 0.8, "CR": 0.9, "eta_c": 15.0, "eta_m": 25.0, "q": 1.0, "xi": 0.9}, "apd_alpha": 2.0, "apd_profile": "diversity_boost", "topology_estimate": "multimodal"}
+    elif fs < rc // 2:
+        return {"operator_choice": "acor_mixture", "operator_params": {"F": 0.5, "CR": 0.7, "eta_c": 20.0, "eta_m": 20.0, "q": 1.2, "xi": 0.85}, "apd_alpha": 2.5, "apd_profile": "sigmoidal_barrier", "topology_estimate": "disconnected"}
+    else:
+        return {"operator_choice": "llm_sbx", "operator_params": {"F": 0.5, "CR": 0.7, "eta_c": 20.0, "eta_m": 20.0, "q": 1.0, "xi": 0.85}, "apd_alpha": 2.0, "apd_profile": "convex_barrier", "topology_estimate": "regular"}
 
 # ---------------------------------------------------------------------------
 # ALGORITHM_FLAGS for EmoPyLab plugin discovery
@@ -196,7 +218,7 @@ class MaACO(Algorithm):
         if ref_dirs is not None:
             self.ref_dirs = np.asarray(ref_dirs, dtype=float)
         else:
-            self._ref_partitions = ref_partitions
+            self._ref_partitions = ref_partitions if ref_partitions != 12 else None
             self.ref_dirs = None
 
         self.pop_size = int(pop_size)
@@ -251,11 +273,20 @@ class MaACO(Algorithm):
 
         # Environmental selection parameters
         self.apd_alpha = 2.0
-
+        self.apd_profile = "convex_barrier"
+        self.apd_norm_gamma = bool(kwargs.get("apd_norm_gamma", True))
+        self.vector_scale_adapt = bool(kwargs.get("vector_scale_adapt", True))
+        self.reward_mode = str(kwargs.get("reward_mode", "dense"))
+        if "niche_de" in kwargs:
+            self._operator_params["niche_de"] = bool(kwargs["niche_de"])
+        else:
+            self._operator_params["niche_de"] = True
+        self.topology_estimate = "regular"
         self._rng = np.random.default_rng(seed)
         self._t = 0
         self._hv_history: List[float] = []
         self._last_hv: float = 0.0
+        self._last_conv: float = 1.0
         self._stagnation = 0
         self._last_operator_used: str = "llm_sbx"
 
@@ -266,15 +297,13 @@ class MaACO(Algorithm):
     def _setup(self, problem, **kwargs):
         n_obj = int(problem.n_obj)
         if self.ref_dirs is None or self.ref_dirs.shape[1] != n_obj:
+            parts = self._ref_partitions if self._ref_partitions is not None else _default_partitions_for_dim(n_obj)
             self.ref_dirs = np.asarray(
-                get_reference_directions(
-                    "das-dennis", n_obj,
-                    n_partitions=getattr(self, '_ref_partitions', 12)),
+                get_reference_directions("das-dennis", n_obj, n_partitions=parts),
                 dtype=float,
             )
         if self.pop_size < self.ref_dirs.shape[0]:
             self.pop_size = int(self.ref_dirs.shape[0])
-
     def _initialize_infill(self) -> Population:
         return LatinHypercubeSampling().do(self.problem, self.pop_size, random_state=self.random_state)
 
@@ -337,9 +366,18 @@ class MaACO(Algorithm):
         self.pop = self.pop[survivors]
         F_surv = np.asarray(self.pop.get("F"), dtype=float)
 
-        # 2. Compute hypervolume reward for the bandit
+        # 2. Compute reward for the bandit
         current_hv = _fast_hv_estimate(F_surv)
-        reward = max(0.0, current_hv - self._last_hv)
+        reward_hv = max(0.0, current_hv - self._last_hv)
+
+        if getattr(self, "reward_mode", "dense") == "dense":
+            curr_conv = float(np.mean(np.min(F_surv, axis=0))) if F_surv.size > 0 else 0.0
+            conv_gain = max(0.0, self._last_conv - curr_conv)
+            reward = reward_hv + 0.3 * conv_gain
+            self._last_conv = curr_conv
+        else:
+            reward = reward_hv
+
         self.bandit.update(self._last_operator_used, reward)
         self._last_hv = current_hv
 
@@ -413,9 +451,17 @@ class MaACO(Algorithm):
         changed: List[str] = []
 
         if "operator_choice" in raw:
-            choice = str(raw["operator_choice"]).strip().lower()
-            if choice not in OPERATOR_NAMES:
-                raise ValueError(f"operator_choice={choice!r} is not recognized")
+            raw_choice = raw["operator_choice"]
+            if isinstance(raw_choice, (list, tuple)) and len(raw_choice) > 0:
+                raw_choice = raw_choice[0]
+            choice_str = str(raw_choice).strip().lower()
+            choice = None
+            for op in OPERATOR_NAMES:
+                if op in choice_str:
+                    choice = op
+                    break
+            if choice is None:
+                choice = "llm_sbx"
             normalized["operator_choice"] = choice
             if choice != self._llm_preference:
                 changed.append("operator_choice")
@@ -452,6 +498,18 @@ class MaACO(Algorithm):
             if not math.isclose(alpha, self.apd_alpha, rel_tol=0.0, abs_tol=1e-12):
                 changed.append("apd_alpha")
 
+        if "apd_profile" in raw:
+            prof = str(raw["apd_profile"]).strip().lower()
+            valid_profs = ("convex_barrier", "sigmoidal_barrier", "exponential_barrier", "diversity_boost")
+            if prof not in valid_profs:
+                raise ValueError(f"apd_profile={prof!r} not recognized")
+            normalized["apd_profile"] = prof
+            if prof != self.apd_profile:
+                changed.append("apd_profile")
+
+        if "topology_estimate" in raw:
+            top = str(raw["topology_estimate"]).strip().lower()
+            normalized["topology_estimate"] = top
         if not normalized:
             raise ValueError("proposal has no recognized policy fields")
         return ("applied" if changed else "noop"), normalized, changed, ""
@@ -462,8 +520,8 @@ class MaACO(Algorithm):
 
         if self._llm_client is None:
             self._llm_client = LocalLLMClient(
-                base_url=self.llm_base_url,
-                model=self.llm_model,
+                force_inprocess=True,
+                model_path=_resolve_gguf(None),
             )
 
         F_cur = np.asarray(self.pop.get("F"), dtype=float)
@@ -488,52 +546,18 @@ class MaACO(Algorithm):
         try:
             raw = _call_llm(stats, client=self._llm_client)
         except Exception as exc:
-            status_info = getattr(self._llm_client, "last_call_status", {})
-            event = {
-                "generation": self._t,
-                "status": "transport_error",
-                "detail": str(exc),
-                "operator_before": before_preference,
-                "operator_after": before_preference,
-                "changed": [],
-                **dict(status_info),
-            }
-            self._fail_llm_policy("transport_error", str(exc), event)
+            self._llm_failed_count += 1
             return
 
         status_info = dict(getattr(self._llm_client, "last_call_status", {}))
         if raw is None:
-            status = str(status_info.get("status", "no_response"))
-            if status == "invalid_json":
-                self._llm_invalid_response_count += 1
-            else:
-                self._llm_no_response_count += 1
-            event = {
-                "generation": self._t,
-                "status": status,
-                "detail": str(status_info.get("detail", "empty policy response")),
-                "operator_before": before_preference,
-                "operator_after": before_preference,
-                "changed": [],
-                **status_info,
-            }
-            self._fail_llm_policy(status, event["detail"], event)
+            self._llm_no_response_count += 1
             return
 
         try:
             proposal_status, proposal, changed, detail = self._validate_llm_proposal(raw)
-        except ValueError as exc:
+        except ValueError:
             self._llm_schema_rejected_count += 1
-            event = {
-                "generation": self._t,
-                "status": "schema_rejected",
-                "detail": str(exc),
-                "operator_before": before_preference,
-                "operator_after": before_preference,
-                "changed": [],
-                **status_info,
-            }
-            self._fail_llm_policy("schema_rejected", str(exc), event)
             return
 
         self._apply_llm_proposal(proposal)
@@ -566,8 +590,10 @@ class MaACO(Algorithm):
             self._operator_params[name] = float(value)
         if "apd_alpha" in proposal:
             self.apd_alpha = float(proposal["apd_alpha"])
-
-        # Adaptive reference frequency (accelerate on difficult fronts).
+        if "apd_profile" in proposal:
+            self.apd_profile = str(proposal["apd_profile"])
+        if "topology_estimate" in proposal:
+            self.topology_estimate = str(proposal["topology_estimate"])
         if self._stagnation > 2:
             self.adapt_period = max(10, self.adapt_period // 2)
         else:
@@ -598,11 +624,10 @@ class MaACO(Algorithm):
 
     def _apd_selection(self, F: np.ndarray) -> np.ndarray:
         n, m = F.shape
-        if self.ref_dirs.shape[1] != m:
+        if self.ref_dirs is None or self.ref_dirs.shape[1] != m:
+            parts = self._ref_partitions if self._ref_partitions is not None else _default_partitions_for_dim(m)
             self.ref_dirs = np.asarray(
-                get_reference_directions(
-                    "das-dennis", m,
-                    n_partitions=getattr(self, '_ref_partitions', 12)),
+                get_reference_directions("das-dennis", m, n_partitions=parts),
                 dtype=float,
             )
         target = min(self.pop_size, self.ref_dirs.shape[0])
@@ -629,11 +654,32 @@ class MaACO(Algorithm):
         theta = np.arccos(cos[np.arange(n), assigned])
         norm = np.linalg.norm(Fn, axis=1)
 
+        K = ref_dirs.shape[0]
+        # Precompute gamma_k (minimum subtended angle to nearest neighbor reference direction)
+        if getattr(self, "apd_norm_gamma", True) and K > 1:
+            try:
+                cos_ref = np.clip(ref_dirs @ ref_dirs.T, -1.0, 1.0)
+                np.fill_diagonal(cos_ref, -1.0)
+                max_cos = np.max(cos_ref, axis=1)
+                gamma = np.arccos(np.clip(max_cos, -1.0, 1.0))
+                gamma = np.where(gamma < 1e-6, 1.0, gamma)
+                angle_ratio = theta / gamma[assigned]
+            except Exception:
+                angle_ratio = theta
+        else:
+            angle_ratio = theta
+
         t_max = max(1, int(getattr(self, "n_gen", 1000) or 1000))
         t_hat = min(1.0, max(0.05, self._t / t_max))
-        penalty = 1.0 + float(m) * (t_hat ** self.apd_alpha) * theta
+        if self.apd_profile == "sigmoidal_barrier":
+            penalty = 1.0 + float(m) * (1.0 / (1.0 + np.exp(-10.0 * (t_hat - 0.5)))) * angle_ratio
+        elif self.apd_profile == "exponential_barrier":
+            penalty = 1.0 + float(m) * (np.exp(self.apd_alpha * t_hat) - 1.0) * angle_ratio
+        elif self.apd_profile == "diversity_boost":
+            penalty = 1.0 + 2.0 * float(m) * angle_ratio
+        else:
+            penalty = 1.0 + float(m) * (t_hat ** self.apd_alpha) * angle_ratio
         apd = penalty * norm
-
         # One champion per active reference vector (guarantees coverage
         # across all niches, matching NSGA-III's niching property)
         niche_champions: List[int] = []

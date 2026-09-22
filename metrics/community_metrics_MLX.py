@@ -40,21 +40,51 @@ def _to_mx(values: Any):
 _TILE_BUDGET = 2 ** 26
 
 
+if _HAS_MLX:
+    @mx.compile
+    def _tile_kernel_mlx(x: Any, y: Any):
+        diff = mx.expand_dims(x, 1) - mx.expand_dims(y, 0)
+        d = mx.sqrt(mx.sum(diff * diff, axis=2))
+        return mx.min(d, axis=1)
+
+    @mx.compile
+    def _tile_kernel_igdp_mlx(o: Any, chunk: Any, p: float):
+        diff = mx.maximum(mx.expand_dims(chunk, 0) - mx.expand_dims(o, 1), 0.0)
+        if abs(p - 2.0) <= 1e-12:
+            d = mx.sqrt(mx.sum(diff * diff, axis=2))
+        elif abs(p - 1.0) <= 1e-12:
+            d = mx.sum(diff, axis=2)
+        else:
+            d = mx.sum(mx.power(diff, p), axis=2) ** (1.0 / p)
+        return mx.min(d, axis=1)
+
+    # Pre-warm compiled kernels with tiny tensors to eliminate first-generation JIT delay
+    try:
+        _dummy_a = mx.zeros((2, 3), dtype=mx.float32)
+        _dummy_b = mx.zeros((2, 3), dtype=mx.float32)
+        _ = _tile_kernel_mlx(_dummy_a, _dummy_b)
+        mx.eval(_)
+        _ = _tile_kernel_igdp_mlx(_dummy_a, _dummy_b, 2.0)
+        mx.eval(_)
+    except Exception:
+        pass
+else:
+    def _tile_kernel_mlx(x: Any, y: Any):
+        raise RuntimeError("MLX unavailable")
+
+    def _tile_kernel_igdp_mlx(o: Any, chunk: Any, p: float):
+        raise RuntimeError("MLX unavailable")
+
+
 def _tiled_min_mlx(aa: Any, bb: Any) -> Any:
     """Row-wise min Euclidean distance over query rows aa vs ref rows bb."""
     n, k = int(aa.shape[0]), int(bb.shape[0])
     m = int(aa.shape[1])
     tile = max(1, min(k, _TILE_BUDGET // max(1, n * m)))
 
-    @mx.compile
-    def _tile_kernel(x: Any, y: Any):
-        diff = mx.expand_dims(x, 1) - mx.expand_dims(y, 0)
-        d = mx.sqrt(mx.sum(diff * diff, axis=2))
-        return mx.min(d, axis=1)
-
     best = None
     for start in range(0, k, tile):
-        cur = _tile_kernel(aa, bb[start:start + tile])
+        cur = _tile_kernel_mlx(aa, bb[start:start + tile])
         mx.eval(cur)
         best = cur if best is None else mx.minimum(best, cur)
     mx.eval(best)
@@ -68,25 +98,13 @@ def _tiled_min_igdp_mlx(pop_m: Any, opt_m: Any, p: float = 2.0) -> Any:
     tile = max(1, min(n, _TILE_BUDGET // max(1, k * m)))
     pf = float(p)
 
-    @mx.compile
-    def _tile_kernel_igdp(o: Any, chunk: Any):
-        diff = mx.maximum(mx.expand_dims(chunk, 0) - mx.expand_dims(o, 1), 0.0)
-        if abs(pf - 2.0) <= 1e-12:
-            d = mx.sqrt(mx.sum(diff * diff, axis=2))
-        elif abs(pf - 1.0) <= 1e-12:
-            d = mx.sum(diff, axis=2)
-        else:
-            d = mx.sum(mx.power(diff, pf), axis=2) ** (1.0 / pf)
-        return mx.min(d, axis=1)
-
     best = None
     for start in range(0, n, tile):
-        cur = _tile_kernel_igdp(opt_m, pop_m[start:start + tile])
+        cur = _tile_kernel_igdp_mlx(opt_m, pop_m[start:start + tile], pf)
         mx.eval(cur)
         best = cur if best is None else mx.minimum(best, cur)
     mx.eval(best)
     return best
-
 
 if _HAS_MLX:
     @mx.compile

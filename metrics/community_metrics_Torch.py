@@ -179,10 +179,10 @@ def _metric_DeltaP_Torch(front: Any, context: dict[str, Any]) -> float:
     pop_t = _to_torch(pop, dev)
     opt_t = _to_torch(opt, dev)
 
-    gd = torch.linalg.vector_norm(_tiled_min_euclidean(pop_t, opt_t)) / float(pop_t.shape[0])
-    igd = torch.mean(_tiled_min_euclidean(opt_t, pop_t))
+    gd_mean = torch.mean(_tiled_min_euclidean(pop_t, opt_t))
+    igd_mean = torch.mean(_tiled_min_euclidean(opt_t, pop_t))
 
-    val = torch.maximum(gd, igd)
+    val = torch.maximum(gd_mean, igd_mean)
     return float(val.item())
 
 

@@ -139,7 +139,15 @@ def _resolve_algorithm_instance(algorithm_name: str, pop_size: int = 100, **kwar
         n_obj = kwargs.get("n_obj", 3)
         ref_dirs = kwargs.get("ref_dirs")
         if ref_dirs is None:
-            ref_dirs = get_reference_directions("das-dennis", n_obj=n_obj, n_partitions=12)
+            if n_obj <= 3:
+                p = 12
+            elif n_obj <= 5:
+                p = 6
+            elif n_obj <= 8:
+                p = 3
+            else:
+                p = 2
+            ref_dirs = get_reference_directions("das-dennis", n_obj=n_obj, n_partitions=p)
         pop_size = kwargs.get("pop_size", len(ref_dirs))
         return NSGA3(ref_dirs=ref_dirs, pop_size=pop_size)
     elif name_clean in ("MOEAD", "MOEA/D"):

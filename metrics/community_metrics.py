@@ -318,8 +318,29 @@ def _resolve_problem_reference(
                 if kind == "front":
                     continue
             return arr
+        # Fallback: try resolving from canonical catalog
+        if kind == "front":
+            problem_name = str(context.get("problem_name", "") or getattr(problem, "__class__", type(problem)).__name__).lower()
+            if problem_name:
+                try:
+                    from core.engine.runner import _resolve_problem_instance
+                    canonical_prob = _resolve_problem_instance(problem_name, n_obj=n_obj)
+                    if canonical_prob is not None and canonical_prob is not problem:
+                        fn = getattr(canonical_prob, "pareto_front", None) or getattr(canonical_prob, "_calc_pareto_front", None)
+                        if callable(fn):
+                            for kwargs in call_kwargs:
+                                try:
+                                    values = fn(**kwargs)
+                                    if values is not None:
+                                        arr = _as_2d(values)
+                                        if arr.size > 0 and arr.shape[1] == n_obj:
+                                            return arr
+                                except Exception:
+                                    continue
+                except Exception:
+                    pass
 
-    return None
+        return None
 
 
 def _get_reference_front(context: dict[str, Any]) -> np.ndarray | None:

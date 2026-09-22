@@ -33,6 +33,7 @@ from operators.utility_functions.OperatorGA import OperatorGA
 from operators.utility_functions.TournamentSelection import TournamentSelection
 from operators.utility_functions.UniformPoint import UniformPoint
 from util.array_backend import backend_cdist
+from util.nds.non_dominated_sorting import find_non_dominated
 
 from algorithms.community_utils.moead_family import (
     current_fe,
@@ -139,18 +140,21 @@ def gng_update(
                 age = np.pad(age, ((0, 1), (0, 1)))
                 hp = np.append(hp, float(net.max_hp))
                 continue
-
-            d = np.linalg.norm(node - pattern[None, :], axis=1)
-            order = np.argsort(d)
-            ra, rb = int(order[0]), int(order[1])
-
+            diff = node - pattern[None, :]
+            d_sq = np.sum(diff * diff, axis=1)
+            n_nodes = d_sq.shape[0]
+            if n_nodes <= 2:
+                ra, rb = (0, 1) if d_sq[0] <= d_sq[1] else (1, 0)
+            else:
+                top2 = np.argpartition(d_sq, 1)[:2]
+                ra, rb = (int(top2[0]), int(top2[1])) if d_sq[top2[0]] <= d_sq[top2[1]] else (int(top2[1]), int(top2[0]))
             hp = hp - 1.0
             hp[ra] = float(net.max_hp)
             hp[rb] = hp[rb] + 1.0
 
             age[ra, :] += 1.0
             age[:, ra] += 1.0
-            err[ra] += d[ra] ** 2
+            err[ra] += d_sq[ra]
 
             node[ra] += 0.2 * (pattern - node[ra])          # epsilon_a
             for j in np.where(edge[ra] == 1)[0]:
@@ -266,8 +270,8 @@ def archive_update(
 ) -> np.ndarray:
     """Update the input-signal archive (objective vectors only)."""
     data = np.unique(np.asarray(data, dtype=float), axis=0)
-    front_no, _ = NDSort(data, len(data))
-    data = data[np.asarray(front_no).reshape(-1) == 1]
+    nd_idx = find_non_dominated(data)
+    data = data[nd_idx]
     if len(data) <= n_max:
         return data
 
@@ -471,6 +475,13 @@ class DEAGNG(Algorithm):
                 d1 = norm_p[i] * cos[i, pi[i]]
                 g[i] = d1 + th * d2[i]
 
+        NR = len(R)
+        # Pre-group solutions associated with each reference vector for fast O(1) retrieval
+        pi_sub = pi[n1:]
+        sub_indices_by_ref: list[list[int]] = [[] for _ in range(NR)]
+        for i_sub, j_ref in enumerate(pi_sub):
+            sub_indices_by_ref[j_ref].append(i_sub)
+
         choose = np.zeros(n2, dtype=bool)
         z_choose = np.ones(len(R), dtype=bool)
         rng = self.random_state
@@ -481,19 +492,19 @@ class DEAGNG(Algorithm):
                 take = rng.permutation(rest)[: K - int(choose.sum())]
                 choose[take] = True
                 break
-            cand = cand[rho[cand] == rho[cand].min()]
-            j = int(rng.choice(cand))
-            I = np.where(~choose & (pi[n1:] == j))[0]
-            if I.size:
+            min_rho = rho[cand].min()
+            cand_min = cand[rho[cand] == min_rho]
+            j = int(rng.choice(cand_min))
+            sub_list = [i for i in sub_indices_by_ref[j] if not choose[i]]
+            if sub_list:
                 if rho[j] == 0:
-                    s = I[np.argmin(g[n1 + I])]
+                    s = sub_list[int(np.argmin(g[n1 + np.asarray(sub_list)]))]
                 else:
-                    s = rng.choice(I)
+                    s = rng.choice(sub_list)
                 choose[int(s)] = True
                 rho[j] += 1
             else:
                 z_choose[j] = False
-
         crd_all = rho[pi]
         crd = np.concatenate([crd_all[:n1], crd_all[n1 + np.where(choose)[0]]]).astype(float)
         return np.where(choose)[0], crd

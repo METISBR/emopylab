@@ -151,14 +151,37 @@ def llm_de(X_pop: np.ndarray,
         return rng.uniform(xl, xu, size=(pop_size, n_var))
 
     offspring = np.empty((pop_size, n_var), dtype=float)
+    use_niche_de = bool(params.get("niche_de", False)) and F_pop is not None and len(F_pop) == n_pop
+
+    # Precompute nearest neighbors in objective space if niche_de is enabled
+    if use_niche_de:
+        try:
+            # Pairwise euclidean distance in normalized F space
+            fn_min = F_pop.min(axis=0)
+            fn_denom = np.maximum(F_pop.max(axis=0) - fn_min, 1e-12)
+            fn = (F_pop - fn_min) / fn_denom
+            dists = np.sum((fn[:, None, :] - fn[None, :, :]) ** 2, axis=2)
+            k_nb = min(n_pop, max(4, n_pop // 4))
+            # Sort neighbors per individual
+            neighbors = np.argsort(dists, axis=1)[:, :k_nb]
+        except Exception:
+            use_niche_de = False
+
     for i in range(pop_size):
-        # Pick 3 distinct random donors
-        candidates = rng.choice(n_pop, size=3, replace=False)
+        target_idx = i % n_pop
+
+        # Pick 3 distinct donors (preferentially from local niche if enabled)
+        if use_niche_de and rng.random() < 0.85 and len(neighbors[target_idx]) >= 3:
+            pool = neighbors[target_idx]
+            candidates = rng.choice(pool, size=3, replace=False)
+        else:
+            candidates = rng.choice(n_pop, size=3, replace=False)
+
         r1, r2, r3 = candidates[0], candidates[1], candidates[2]
         donor = X_pop[r1] + F_scale * (X_pop[r2] - X_pop[r3])
 
         # Binomial crossover
-        target = X_pop[i % n_pop]
+        target = X_pop[target_idx]
         cross_points = rng.random(n_var) < CR
         if not np.any(cross_points):
             cross_points[rng.integers(0, n_var)] = True

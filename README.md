@@ -33,6 +33,14 @@ If you utilize **EmoPyLab** in your scientific research, algorithms, or benchmar
 ---
 
 ## Changelog & Release Notes
+### [v1.0.6] — 2026-09-21
+* **Unified WebGL Visualization (Plotly Engine)**: Replaced legacy plotting (`QChartView` and `Q3DScatter`) with a unified hardware-accelerated Plotly WebGL architecture (`PlotlyWidget`). Seamlessly renders 2D Pareto fronts, 3D interactive manifolds ($M=3$), and Many-Objective Parallel Coordinates ($M > 3$) with 360° orbital rotation, pan, and focal zoom across macOS (Metal), Windows, and Linux.
+* **Direct MCDM Click-to-Select**: Integrated bidirectional `QWebChannel` communication allowing users to click directly on Pareto front solutions in the WebGL plot to inspect and trigger MCDM decision support.
+* **Algorithmic Hardening (RVEA-a, TC-MaOEA, MaACO, DEA-GNG)**: Added canonical implementation of RVEA-a (reference vector adaptation for irregular/degenerate Pareto fronts); enhanced TC-MaOEA with spectral damping and topological neighborhood coupling; added localized niche DE to MaACO; optimized Growing Neural Gas updates in DEA-GNG to linear time.
+* **Hardware & Acceleration Tuning**: Pre-warmed compiled MLX kernels (`@mx.compile`) on Apple Silicon eliminating first-generation JIT delay; refined Torch $\Delta p$ metric formulation; dynamic Das-Dennis partition scaling preventing reference vector explosion in many-objective regimes ($M \ge 4$).
+* **Local LLM Formulation**: Modernized default local LLM engine to `SmolLM2-360M-Instruct` (GGUF), with enhanced port isolation and in-process execution.
+* **Python 3.14 & Stack Modernization**: Full compatibility with Python 3.14, updated dependency bounds for NumPy 2.x and Numba 0.67+.
+
 ### [v1.0.5] — 2026-09-15
 * **Hypervolume Suite**: new `metrics/iqhv.py` (exact QHV-II, Jaszkiewicz COR'18 — now the default checked metric in the GUI), `metrics/r2hv_norm.py` (normalized R2-HV, Wu/Shang/Ishibuchi SSCI'23), `metrics/ndtree_hv.py` (ND-Tree distance-based estimation, Jaszkiewicz/Zielniewicz TEVC'24).
 * **Canonical raw QMC Monte Carlo**: `HV_fast_MC` defaults to direct-space scrambled-Sobol (`mode="raw"`, no coordinate rescaling), matching exact IQHV within 0.02–0.04% on MaF6 m=8/10 (NSGA-III, pop=10, 25k evals); normalized scale accessible via `mode="normalized"`.
@@ -243,6 +251,7 @@ emopylab-gui
 ### Desktop UI/UX Features:
 * **Asynchronous Execution:** Solvers run in dedicated background threads (`QThreadPool`), preserving a responsive 60 FPS interface.
 * **Ring Buffer Telemetry:** Streaming data is buffered in circular queues with fixed bounds, ensuring memory usage stays strictly below 150 MB RAM even during multi-day campaigns.
+* **Unified Hardware-Accelerated Visualizer (Plotly WebGL):** GPU-accelerated 2D Pareto, 3D orbital manifolds ($M = 3$), and Many-Objective Parallel Coordinates ($M > 3$) rendered at 60 FPS with fluid 360° rotation, trackpad/mouse pan and zoom, hover inspections, and direct click-to-select for MCDM decision support.
 * **Glassmorphic HUD Tooltips:** Hovering over Pareto scatter plots reveals real-time objective vectors $f(x^*)$, constraint violations $CV$, and MCDM scores.
 * **Hardware Acceleration Badge:** Real-time visual indicator (`⚡ JAX Vectorized`, `🍏 Apple MLX`, or `🖥️ CPU Core Engine`).
 

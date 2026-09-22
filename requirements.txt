@@ -2,12 +2,12 @@
 # EmoPyLab Dependency Manifest
 # ==============================================================================
 # Base runtime requirements for the EmoPyLab framework (entrypoint: EmoPyLab.py).
-# Recommended Python: 3.11.x
+# Recommended Python: 3.11.x or 3.14.x
 # ==============================================================================
 
 # Core numerical and optimization stack
-numpy>=2.3,<2.5
-numba>=0.66,<0.67
+numpy>=2.3,<2.6
+numba>=0.66,<0.68
 scipy>=1.16,<2
 matplotlib>=3.10,<4
 psutil>=7.2,<8
@@ -20,6 +20,7 @@ jax>=0.4
 PySide6>=6.10,<7
 qt-material>=2.17,<3
 qtawesome>=1.3,<2
+plotly>=5.24,<6
 # ==============================================================================
 # Optional profiles (uncomment as needed)
 # ==============================================================================

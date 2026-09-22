@@ -135,7 +135,13 @@ class LARC_NSGA3(NSGA3):
             if llm_client is not None:
                 self.llm_client = llm_client
             else:
-                self.llm_client = LocalLLMClient(temperature=policy_temperature, max_tokens=48)
+                from core.llm.local_llm import resolve_local_model_path
+                self.llm_client = LocalLLMClient(
+                    force_inprocess=True,
+                    model_path=resolve_local_model_path(None),
+                    temperature=policy_temperature,
+                    max_tokens=48,
+                )
         else:
             self.llm_client = None
 

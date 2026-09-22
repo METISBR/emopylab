@@ -110,9 +110,9 @@ class TC_MaOEA(Algorithm):
         wadapt_mode: str = "degenerate_pos",
         degeneracy_frac: float = 0.6,
         degeneracy_ratio: float = 0.15,
-        use_llm: bool = True,
-        llm_interval: int = 3,
-        llm_max_calls: int = 100,
+        use_llm: bool = False,
+        llm_interval: int = 20,
+        llm_max_calls: int = 15,
         llm_temperature: float = 0.9,
         llm_model_name: Optional[str] = None,
         llm_model_path: Optional[str | Path] = None,
@@ -483,9 +483,9 @@ class TC_MaOEA(Algorithm):
 
         X = population_matrix(self.pop, "X")
         N, D = X.shape
+        M = int(self.problem.n_obj)
         xl = np.asarray(to_numpy(self.problem.xl), dtype=float)
         xu = np.asarray(to_numpy(self.problem.xu), dtype=float)
-
         P_T = self.P_T if self.P_T is not None else np.eye(D)
         P_N = self.P_N if self.P_N is not None else np.zeros((D, D))
         d_kkt = self.d_kkt if self.d_kkt is not None else np.zeros(D)
@@ -622,27 +622,36 @@ class TC_MaOEA(Algorithm):
             n_ga = N // 2
             n_de = N - n_ga
             n_parents_ga = n_ga + (1 if n_ga % 2 == 1 else 0)
-            if hasattr(rng, "integers"):
-                draws_ga = rng.integers(0, N, size=(2, n_parents_ga))
-            else:
-                draws_ga = rng.randint(0, N, size=(2, n_parents_ga))
-            p_ga = draws_ga[0]
-            off_ga = OperatorGA(self.problem, self.pop[p_ga].get("X"), rng=rng)[:n_ga]
+
+            # Compute topological neighborhood in normalized objective space
+            span = np.maximum(self.z_max - self.z_min, 1e-12)
+            F_norm = (F - self.z_min[None, :]) / span[None, :]
+            from util.array_backend import backend_cdist
+            dist_mat = backend_cdist(F_norm, F_norm)
+            np.fill_diagonal(dist_mat, np.inf)
+            k_neigh = min(10, N - 1)
+            neighbors = np.argsort(dist_mat, axis=1)[:, :k_neigh]
+
+            # Arm A: Locally-coupled SBX for multimodal exploration
+            p_ga_list = []
+            for _ in range(n_parents_ga):
+                i1 = int(rng.integers(0, N))
+                i2 = int(rng.choice(neighbors[i1])) if rng.random() < 0.8 else int(rng.integers(0, N))
+                p_ga_list.extend([i1, i2])
+            p_ga = np.array(p_ga_list, dtype=int)
+            off_ga = OperatorGA(self.problem, self.pop[p_ga].get("X"), Parameter=[1.0, 20.0, 0.0, 20.0], rng=rng)[:n_ga]
             off_ga = np.clip(off_ga, xl, xu)
 
-            # Arm 2: Tangent-Coupled DE with full energy preservation
-            if hasattr(rng, "integers"):
-                draws_de = rng.integers(0, N, size=(2, n_de))
-                d1 = rng.integers(0, N, size=(2, n_de))
-                d2 = rng.integers(0, N, size=(2, n_de))
-            else:
-                draws_de = rng.randint(0, N, size=(2, n_de))
-                d1 = rng.randint(0, N, size=(2, n_de))
-                d2 = rng.randint(0, N, size=(2, n_de))
-
-            p_base_de = draws_de[0]
-            r1_de = d1[0]
-            r2_de = d2[0]
+            # Arm B: Locally-coupled Tangent DE with Spectral-Damped Normal Step
+            p_base_de = rng.integers(0, N, size=n_de)
+            r1_de = np.empty(n_de, dtype=int)
+            r2_de = np.empty(n_de, dtype=int)
+            for idx in range(n_de):
+                base_idx = p_base_de[idx]
+                neigh = neighbors[base_idx]
+                chosen = rng.choice(neigh, size=2, replace=False)
+                r1_de[idx] = int(chosen[0])
+                r2_de[idx] = int(chosen[1])
 
             delta_de = 0.5 * (X[r1_de] - X[r2_de])
             delta_T = delta_de @ P_T.T
@@ -650,7 +659,16 @@ class TC_MaOEA(Algorithm):
             curr_eval = float(self.n_evals)
             max_eval = float(getattr(self.termination, "n_max_evals", getattr(self.termination, "n_max_eval", 30000)))
             tau = float(np.clip(curr_eval / max(max_eval, 1.0), 0.0, 1.0))
-            sigma_diff = 0.05 * ((1.0 - tau) ** 2.0)
+
+            # Spectral Damping: attenuate normal diffusion when intrinsic manifold dimension is low (d* << M-1)
+            sigmas = getattr(self, "sigmas", np.array([1.0]))
+            d_star = getattr(self, "d_star", M - 1)
+            if len(sigmas) > d_star:
+                rho_res = float(np.sum(sigmas[d_star:] ** 2) / (np.sum(sigmas ** 2) + 1e-12))
+            else:
+                rho_res = 0.0
+            gamma_damp = float(np.clip(5.0 * rho_res, 0.01, 1.0))
+            sigma_diff = 0.05 * ((1.0 - tau) ** 2.0) * gamma_damp
             xi = stochastic_normal_diffusion(P_N, n_de, xl, xu, sigma_diff, rng=rng)
 
             delta_N_shared = self._shared_normal_step(P_N, d_kkt, delta_de)

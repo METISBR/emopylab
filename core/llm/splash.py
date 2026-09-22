@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8080/v1"
 DEFAULT_MLX_PORT = 8080
-DEFAULT_MODEL = "mlx-community/Qwen2.5-0.5B-Instruct-4bit"
+DEFAULT_MODEL = "SmolLM2-360M-Instruct-Q4_K_M.gguf"
 StatusCallback = Callable[[dict[str, Any]], None]
 
 
@@ -93,8 +93,25 @@ def base_url_for_port(port: int) -> str:
 
 
 def probe_openai_models(base_url: str, timeout: float = 0.75) -> EndpointProbe:
-    """Strictly validate ``GET /models`` instead of trusting HTTP 200 alone."""
+    """Strictly validate ``GET /models`` instead of trusting HTTP 200 alone.
+
+    Ports in _BLOCKED_PORTS are unconditionally rejected — they belong to
+    non-emopylab services (e.g. 20128 = omp/9router local gateway) that happen
+    to expose an OpenAI-compatible /models endpoint.
+    """
+    # Ports that must never be used as an LLM backend, regardless of response.
+    _BLOCKED_PORTS: frozenset[int] = frozenset({20128})
+
     normalized = str(base_url).rstrip("/")
+    # Extract port from URL and reject immediately if blocked.
+    try:
+        import urllib.parse as _urlparse
+        _parsed_port = _urlparse.urlparse(normalized).port
+        if _parsed_port in _BLOCKED_PORTS:
+            return EndpointProbe("not_listening", normalized, detail=f"Port {_parsed_port} is reserved for internal services.")
+    except Exception:
+        pass
+
     url = f"{normalized}/models"
     try:
         with urllib.request.urlopen(url, timeout=max(0.05, float(timeout))) as response:
@@ -292,7 +309,7 @@ class LocalLLMStartupCoordinator:
             deadline = time.monotonic() + self.readiness_timeout
             while not self._cancel_event.is_set() and time.monotonic() < deadline:
                 elapsed = int(max(0.0, time.monotonic() - started_at))
-                self._emit("loading", f"Loading Qwen2.5 locally — {elapsed} s elapsed. The workspace is ready to use.", started_at=started_at)
+                self._emit("loading", f"Loading SmolLM2-360M locally — {elapsed} s elapsed. The workspace is ready to use.", started_at=started_at)
                 if wait_for_server(self.base_url, timeout=min(0.75, max(0.05, deadline - time.monotonic())), poll_interval=0.1, request_timeout=0.35):
                     self._finish("ready", f"Local AI is ready at {self.base_url}.", state="success", started_at=started_at, ready=True)
                     return
@@ -342,7 +359,7 @@ class EmoPyLabStartupSplash:
 
     Displays an elegant dark glassmorphic startup dialog with live milestones:
       1. Initializing Tensor Runtime & Hardware Acceleration (CUDA, MLX, SIMD)
-      2. Loading Local AI Engine (Qwen2.5-0.5B GGUF / MLX)
+      2. Loading Local AI Engine (SmolLM2-360M GGUF)
       3. Registering 298+ Metaheuristics & Analytical Suites
       4. Scientific Workspace Ready
     """
@@ -460,7 +477,7 @@ class EmoPyLabStartupSplash:
                 f"font-size: 13px; font-weight: 500; color: {sub_color}; line-height: 1.3; background: transparent; border: none;"
             )
 
-            badge_lbl = QLabel("Scientific Workstation & Offline AI Agent (Qwen2.5-0.5B)")
+            badge_lbl = QLabel("Scientific Workstation & Offline AI Agent (SmolLM2-360M)")
             badge_lbl.setStyleSheet(
                 f"font-size: 11px; font-weight: 600; color: {accent_cyan}; background: transparent; border: none;"
             )
@@ -583,7 +600,7 @@ class EmoPyLabStartupSplash:
     def update_step(self, step: int, detail: str | None = None, *, completed_through: int | None = None) -> None:
         milestones = [
             ("Initializing Tensor Runtime & Hardware Acceleration...", "Detecting PyTorch CUDA/MPS, JAX, Apple MLX, and CPU SIMD"),
-            ("Loading Local AI Engine (Qwen2.5-0.5B GGUF / MLX)...", "Initializing offline AI model from models/ directory"),
+            ("Loading Local AI Engine (SmolLM2-360M GGUF)...", "Initializing offline AI model from models/ directory"),
             ("Registering 298+ Metaheuristics & Analytical Suites...", "Registering multi-objective metaheuristics and benchmark suites"),
             ("Workspace Ready.", "Scientific Workspace Initialized"),
         ]
@@ -648,7 +665,7 @@ def show_startup_splash(
     )
     splash.update_progress(
         50,
-        "Loading Local AI Engine (Qwen2.5-0.5B GGUF / MLX)...",
+        "Loading Local AI Engine (SmolLM2-360M GGUF)...",
         "Initializing offline AI model from models/ directory",
         step_text="Phase 2/4",
     )

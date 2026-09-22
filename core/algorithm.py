@@ -357,7 +357,14 @@ class Algorithm:
             X, F, CV, G, H = None, None, None, None, None
         else:
             if hasattr(res.opt, "get"):
-                X, F, CV, G, H = res.opt.get("X", "F", "CV", "G", "H")
+                X = res.opt.get("X")
+                F = res.opt.get("F")
+                CV = res.opt.get("CV")
+                G = res.opt.get("G")
+                H = res.opt.get("H")
+            elif isinstance(res.opt, np.ndarray) and res.opt.dtype != object:
+                F = res.opt
+                X, CV, G, H = None, None, None
             else:
                 X = np.array([ind.X for ind in res.opt if hasattr(ind, "X")])
                 F = np.array([ind.F for ind in res.opt if hasattr(ind, "F")])
