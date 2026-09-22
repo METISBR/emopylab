@@ -1,13 +1,29 @@
-"""SSW2: Population-Based Stochastic Steepest Weights with Ensemble Evolutionary Jacobian.
+"""SSW2: Population-Based Stochastic Steepest Weights Optimizer.
 
-Evolutionary vector optimization framework combining:
-1. Ensemble Evolutionary Jacobian (gradient-free O(0) additional function evaluation cost).
-2. Adaptive step-size (sigma) and noise intensity (epsilon) via 3 selectable strategies:
-   - "cma_csa": CMA-ES Cumulative Step-Size Adaptation with path integration.
-   - "success_rule": 1/5th Success Rule with exponential smoothing.
-   - "spectral_cosine": Barzilai-Borwein Spectral Step with Cosine Annealing.
-3. NSGA-III structured reference directions for niching and manifold diversity.
-4. Non-dominated Pareto archive tracking with crowding distance truncation.
+A native evolutionary vector-optimization proposal built on four coupled
+mechanisms:
+
+1. Ensemble Evolutionary Jacobian.
+   Jacobian matrices J_i for every individual are estimated from
+   nearest-neighbor least-squares differences over the population, at
+   ZERO extra function evaluations (fully gradient-free).
+
+2. Underdamped-Langevin momentum.
+   A second-order momentum term smooths the common descent direction,
+   reducing oscillation and accelerating exploration of the Pareto
+   manifold, embedded directly in the Euler-Maruyama update.
+
+3. Adaptive step-size (sigma) and diffusion intensity (epsilon) via three
+   selectable schedules:
+   - "spectral_cosine" (default): Barzilai-Borwein spectral step with
+     cosine annealing.
+   - "cma_csa": CMA-ES cumulative step-size adaptation with path
+     integration.
+   - "success_rule": 1/5th success rule with exponential smoothing.
+
+4. NSGA-III structured reference directions (Das-Dennis) for niching and
+   manifold diversity, plus a non-dominated Pareto archive truncated by
+   crowding distance.
 
 Authors: Prof. Thiago Santos & METISBr Research Group (UFOP / 2026).
 """
@@ -282,7 +298,10 @@ class SSW2(Algorithm):
         elif self.step_strategy == "spectral_cosine":
             self._adapt_parameters_spectral_cosine(t_cur, t_max)
 
-        # 4. Underdamped Langevin Momentum (Second-order continuous dynamics)
+        # 4. Underdamped-Langevin momentum (native mechanism).
+        #    A second-order momentum smooths the common descent direction Q,
+        #    reducing oscillation on the Pareto manifold. Active by default;
+        #    set use_momentum=False only for ablation studies.
         if self.use_momentum:
             if self.V is None or self.V.shape != (N, n):
                 self.V = -Q.copy()
@@ -308,7 +327,8 @@ class SSW2(Algorithm):
         else:
             eff_noise = noise
 
-        # 6. Euler-Maruyama SDE Step with Combined Momentum & Tangential Diffusion
+        # 6. Euler-Maruyama SDE step: drift (momentum) + scaled Brownian
+        #    diffusion, projected back onto the decision box.
         next_X = X + self.sigma * drift + self.epsilon * math.sqrt(max(1e-12, self.sigma)) * eff_noise
 
         # 7. Boundary handling: project onto box bounds
