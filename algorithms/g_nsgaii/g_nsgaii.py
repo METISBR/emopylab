@@ -40,7 +40,7 @@ def _env_selection(pop: Population, N: int, point: np.ndarray):
     last = np.where(front == float(maxf))[0]
     need = int(N - np.sum(next_mask))
     if need > 0 and last.size:
-        rank = np.argsort(-crowd[last])
+        rank = np.argsort(-crowd[last], kind="stable")
         next_mask[last[rank[:need]]] = True
     idx = np.where(next_mask)[0]
     return pop[idx], front[idx], crowd[idx]
@@ -62,7 +62,7 @@ class gNSGAII(Algorithm):
             self.Point = np.zeros(self.problem.n_obj, dtype=float) + 0.5
         evalF = _evaluate_g(self.pop.get("F"), self.Point)
         self.front_no = np.asarray(NDSort(evalF, np.inf)[0], dtype=float)
-        self.crowd = np.asarray(CrowdingDistance(evalF, self.front_no), dtype=float)
+        self.crowd = np.asarray(CrowdingDistance(np.asarray(self.pop.get("F"), dtype=float), self.front_no), dtype=float)
 
     def _infill(self):
         rng = rng_from_algo(self)

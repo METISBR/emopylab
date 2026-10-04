@@ -5,14 +5,9 @@ from __future__ import annotations
 from typing import Any, Optional
 import numpy as np
 
-from core.algorithm import Algorithm
+from algorithms.community_utils.base import LoopAlgorithm, decs, ga_half, nd_sort, objs
+from algorithms.hype.hype import cal_hv
 from core.population import Population
-from core.survival import Survival
-from operators.crossover.sbx import SBX
-from operators.mutation.pm import PolynomialMutation
-from operators.sampling.lhs import LatinHypercubeSampling
-from operators.selection.tournament import TournamentSelection, compare
-from util.nds.non_dominated_sorting import NonDominatedSorting
 
 __all__ = [
     "cv_and_dom_tournament",
@@ -69,70 +64,79 @@ def cv_and_dom_tournament(pop: Population, P: np.ndarray, **kwargs: Any) -> np.n
     return S[:, None].astype(int, copy=False)
 
 
-class SMSEMOASurvival(Survival):
-    """Survival operator for SMS-EMOA."""
-
-    def __init__(self, nds=None) -> None:
-        super().__init__(filter_infeasible=True)
-        self.nds = nds if nds is not None else NonDominatedSorting()
-
-    def _do(self, problem: Any, pop: Population, n_survive: int = 100, **kwargs: Any) -> Population:
-        if len(pop) <= n_survive:
-            return pop
-
-        F = np.asarray(pop.get("F"), dtype=float)
-        fronts = self.nds.do(F)
-
-        survivors = []
-        for front in fronts:
-            if len(survivors) + len(front) <= n_survive:
-                survivors.extend(front)
-            else:
-                remaining = n_survive - len(survivors)
-                survivors.extend(front[:remaining])
-                break
-
-        return pop[np.array(survivors, dtype=int)]
+def _weak_dom(A, B):
+    """``D[j, i]`` is True when ``A[j]`` is no worse than ``B[i]`` in every objective."""
+    return np.all(A[:, None, :] <= B[None, :, :], axis=2)
 
 
-class SMSEMOA(Algorithm):
-    """S-Metric Selection Evolutionary Multi-Objective Algorithm (SMS-EMOA)."""
+def update_front(F, front, x=None):
+    """Incremental non-dominated sorting: insert the last row of ``F`` (``x`` None) or delete row ``x``.
 
-    def __init__(
-        self,
-        pop_size: int = 100,
-        sampling=None,
-        selection=None,
-        crossover=None,
-        mutation=None,
-        survival=None,
-        **kwargs: Any,
-    ) -> None:
-        super().__init__(**kwargs)
-        self.pop_size = int(pop_size)
-        self.sampling = sampling or LatinHypercubeSampling()
-        self.selection = selection or TournamentSelection(func_comp=cv_and_dom_tournament)
-        self.crossover = crossover or SBX(prob=0.9, eta=15)
-        self.mutation = mutation or PolynomialMutation(eta=20)
-        self.survival = survival or SMSEMOASurvival()
+    Weak dominance (all objectives <=) is used, so a duplicate of a front member is pushed to the next front."""
+    F = np.asarray(F, dtype=float)
+    N = len(F)
+    if x is None:
+        front = np.append(np.asarray(front, dtype=float), 0)
+        dom_new = np.all(F[:-1] <= F[-1], axis=1)
+        cur = 1
+        while np.any((front[:-1] == cur) & dom_new):
+            cur += 1
+        move = np.zeros(N, bool)
+        move[-1] = True
+        while move.any():
+            nxt = (front == cur) & np.any(_weak_dom(F[move], F), axis=0)
+            front[move] = cur
+            cur += 1
+            move = nxt
+        return front
+    front = np.asarray(front, dtype=float).copy()
+    move = np.zeros(N, bool)
+    move[x] = True
+    cur = front[x] + 1
+    while move.any():
+        nxt = (front == cur) & np.any(_weak_dom(F[move], F), axis=0)
+        prev = (front == cur - 1) & ~move
+        if nxt.any():
+            nxt[nxt] = ~np.any(_weak_dom(F[prev], F[nxt]), axis=0)
+        front[move] = cur - 2
+        cur += 1
+        move = nxt
+    return np.delete(front, x)
 
-    def _initialize_infill(self) -> Population:
-        return self.sampling.do(self.problem, self.pop_size, random_state=self.random_state)
 
-    def _initialize_advance(self, infills: Population = None, **kwargs: Any) -> None:
-        self.pop = infills
-        self._set_optimum()
+class SMSEMOA(LoopAlgorithm):
+    """S-metric selection EMOA: steady state, one offspring of two random parents per step; the member of the worst
+    front with the smallest exclusive hypervolume contribution is discarded (exact in two objectives, Monte-Carlo
+    otherwise)."""
 
-    def _infill(self) -> Population:
-        return self.crossover.do(
-            self.problem,
-            self.pop,
-            random_state=self.random_state,
-        )
+    ALGO_FLAGS = {"multi", "many", "real", "integer", "binary", "permutation", "label", "constrained"}
 
-    def _advance(self, infills: Optional[Population] = None, **kwargs: Any) -> None:
-        if infills is None or len(infills) == 0:
-            return
-        merged = Population.merge(self.pop, infills)
-        self.pop = self.survival.do(self.problem, merged, n_survive=self.pop_size)
-        self._set_optimum()
+    def __init__(self, pop_size: int = 100, sampling=None, n_sample: int = 10000, **kwargs: Any) -> None:
+        super().__init__(pop_size=pop_size, sampling=sampling, **kwargs)
+        self.n_sample = int(n_sample)
+
+    def start(self):
+        self.front = nd_sort(objs(self.pop), None, np.inf)[0].astype(float)
+
+    def _reduce(self, pop):
+        F = objs(pop)
+        self.front = update_front(F, self.front)
+        last = np.where(self.front == self.front.max())[0]
+        P = F[last]
+        n, M = P.shape
+        delta = np.full(n, np.inf)
+        if M == 2:
+            r = np.lexsort((P[:, 1], P[:, 0]))
+            for i in range(1, n - 1):
+                delta[r[i]] = (P[r[i + 1], 0] - P[r[i], 0]) * (P[r[i - 1], 1] - P[r[i], 1])
+        elif n > 1:
+            delta = cal_hv(P, P.max(axis=0) * 1.1, 1, self.n_sample, self.rng)
+        worst = int(last[int(np.argmin(delta))])
+        self.front = update_front(F, self.front, worst)
+        return pop[np.delete(np.arange(len(pop)), worst)]
+
+    def step(self):
+        for _ in range(self.N):
+            parents = decs(self.pop[self.rng.permutation(len(self.pop))[:2]])
+            off = self.evaluate(ga_half(self.problem, parents, rng=self.rng))
+            self.pop = self._reduce(Population.merge(self.pop, off))

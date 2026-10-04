@@ -497,11 +497,13 @@ class NSGA3(Algorithm):
         self.zmin: np.ndarray | None = None
     def _setup(self, problem, **kwargs):
         if self.ref_dirs is None or self.ref_dirs.ndim != 2 or self.ref_dirs.shape[1] != int(problem.n_obj):
-            self.ref_dirs, n_eff = UniformPoint(self.pop_size, int(problem.n_obj))
+            try:
+                from util.ref_dirs import get_reference_directions
+                self.ref_dirs = get_reference_directions("mud", n_obj=int(problem.n_obj), n_points=self.pop_size)
+            except Exception:
+                from operators.utility_functions.UniformPoint import UniformPoint
+                self.ref_dirs, _ = UniformPoint(self.pop_size, int(problem.n_obj))
             self.ref_dirs = np.asarray(self.ref_dirs, dtype=float)
-            self.pop_size = int(n_eff)
-        if self.pop_size < len(self.ref_dirs):
-            warnings.warn("pop_size is smaller than the number of reference directions", RuntimeWarning)
         self.norm = HyperplaneNormalization(int(problem.n_obj))
 
     def _initialize_infill(self):

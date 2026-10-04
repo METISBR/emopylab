@@ -33,6 +33,28 @@ class _BaseTP(Problem):
             x = x[None, :]
         return np.clip(x, self.xl, self.xu)
 
+    def perturb(self, dec, n_perturb: int | None = None, rng=None):
+        """Sample ``n_perturb`` (default ``H``) Latin-hypercube disturbances of every row of ``dec``.
+
+        Returns ``(F, G)`` with shape ``(n_perturb, n, n_obj)`` / ``(n_perturb, n, n_constr)``.
+        Perturbed evaluations are not charged to the evaluation budget (robustness estimation).
+        """
+        from operators.utility_functions.UniformPoint import UniformPoint
+        dec = np.atleast_2d(np.asarray(dec, dtype=float))
+        n, D = dec.shape
+        H = self.H if n_perturb is None else int(n_perturb)
+        delta = self.delta * (self.xu - self.xl)
+        rng = np.random.default_rng() if rng is None else rng
+        X = np.empty((H, n, D))
+        for i in range(n):  # an independent Latin design per solution
+            w, _ = UniformPoint(H, D, "Latin", rng=rng)
+            X[:, i, :] = 2.0 * delta * np.asarray(w) + dec[i] - delta
+        X = np.clip(X.reshape(H * n, D), self.xl, self.xu)
+        out = self.do(X, ["F", "G"]) if self.n_ieq_constr > 0 else self.do(X, ["F"])
+        F = np.asarray(out["F"], dtype=float).reshape(H, n, -1)
+        G = np.asarray(out["G"], dtype=float).reshape(H, n, -1) if self.n_ieq_constr > 0 else np.zeros((H, n, 0))
+        return F, G
+
 
 class TP1(_BaseTP):
     def __init__(self, n_var: int = 10, **kwargs):

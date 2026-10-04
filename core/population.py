@@ -131,7 +131,7 @@ class Population(np.ndarray):
             return Population([ind for ind in self])
 
     @classmethod
-    def merge(cls, a, b, *args):
+    def merge(cls, a, b=None, *args):
         m = merge(a, b)
         others = list(args)
         while len(others) > 0:

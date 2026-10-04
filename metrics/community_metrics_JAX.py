@@ -181,7 +181,7 @@ def _metric_Spacing_JAX(front, context):
         return 0.0
     d = _pairwise_cityblock_jax(pop, pop)
     n = d.shape[0]
-    d = d + jnp.eye(n, dtype=d.dtype) * jnp.inf
+    d = jnp.where(jnp.eye(n, dtype=bool), jnp.inf, d)
     nearest = jnp.min(d, axis=1)
     if int(nearest.shape[0]) <= 1:
         return 0.0
@@ -485,7 +485,7 @@ def _metric_Worst_IGD_JAX(front, context):
 
 def _metric_R2_JAX(front, context):
     """R2 Indicator computed via JAX tensor operations with CPU fallback."""
-    F = _as_2d(front)
+    F = _cpu._as_2d(front)
     if F.size == 0:
         return float("nan")
     if not np.all(np.isfinite(F)):
@@ -495,7 +495,7 @@ def _metric_R2_JAX(front, context):
         return _metric_R2(front, context)
 
     optimum = _cpu._robust_optimum_front(context)
-    PF = _as_2d(optimum) if optimum is not None else None
+    PF = _cpu._as_2d(optimum) if optimum is not None else None
     if PF is not None:
         if PF.size == 0:
             return float("nan")

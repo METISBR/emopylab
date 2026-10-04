@@ -8,13 +8,12 @@ K. Deb, M. Mohan, and S. Mishra. EMO 2003, 222-236.
 from __future__ import annotations
 
 import numpy as np
-from core.algorithm import Algorithm
 from core.population import Population
 from util.optimum import filter_optimum
 
+from algorithms.community_utils.base import LoopAlgorithm, decs, ga_half
 from operators.utility_functions.NDSort import NDSort
-from operators.utility_functions.OperatorGAhalf import OperatorGAhalf
-from algorithms.community_utils.moead_family import pop_F, rng_from_algo, sample_initial
+from algorithms.community_utils.moead_family import pop_F
 
 
 ALGORITHM_FLAGS = {"eMOEA": {"multi", "many", "real", "integer", "label", "binary", "permutation"}}
@@ -75,48 +74,33 @@ def _update_archive(archive: Population, offspring, epsilon: float) -> Populatio
     return Population.merge(archive, Population.create(offspring))
 
 
-class eMOEA(Algorithm):
+class eMOEA(LoopAlgorithm):
+    """Steady-state epsilon-dominance MOEA: one parent from a dominance tournament in the population, the other from
+    the epsilon-archive; the offspring replaces a dominated (or random) population member and competes for its
+    epsilon box in the archive."""
+
+    PER_STEP_OPTIMUM = True
+
     def __init__(self, pop_size: int = 100, epsilon: float = 0.06, sampling=None, **kwargs):
-        super().__init__(**kwargs)
-        self.pop_size = int(pop_size)
+        super().__init__(pop_size=pop_size, sampling=sampling, **kwargs)
         self.epsilon = float(epsilon)
-        self.sampling = sampling
         self.e_archive = Population.empty()
 
-    def _initialize_infill(self):
-        return sample_initial(self.problem, self.pop_size, self.sampling, rng_from_algo(self))
-
-    def _initialize_advance(self, infills=None, **kwargs):
-        self.pop = infills
+    def start(self):
         grids, _ = _grid_locations(pop_F(self.pop), self.epsilon)
         front = np.asarray(NDSort(grids, 1)[0], dtype=float)
         self.e_archive = self.pop[np.where(front == 1)[0]]
 
-    def _infill(self):
-        rng = rng_from_algo(self)
-        offs = []
-        for _ in range(self.pop_size):
-            k = rng.permutation(self.pop_size)[:2]
-            f1 = _ind_f(self.pop[int(k[0])])
-            f2 = _ind_f(self.pop[int(k[1])])
+    def step(self):
+        rng, N = self.rng, self.N
+        for _ in range(N):
+            k = rng.permutation(N)[:2]
+            f1, f2 = _ind_f(self.pop[int(k[0])]), _ind_f(self.pop[int(k[1])])
             domi = int(np.any(f1 < f2)) - int(np.any(f1 > f2))
-            p = int(k[(domi == -1) + 0])
-            if len(self.e_archive) > 0:
-                q = int(rng.integers(0, len(self.e_archive)))
-                pair = Population.create(self.pop[p], self.e_archive[q])
-            else:
-                q = int(rng.integers(0, self.pop_size))
-                pair = Population.create(self.pop[p], self.pop[q])
-            off = OperatorGAhalf(self.problem, pair, rng=rng)
-            offs.append(off[0] if isinstance(off, Population) else off)
-        out = Population.empty()
-        for off in offs:
-            out = Population.merge(out, Population.create(off))
-        return out
-
-    def _advance(self, infills=None, **kwargs):
-        rng = rng_from_algo(self)
-        for off in infills:
+            p = int(k[int(domi == -1)])
+            q = int(rng.integers(0, len(self.e_archive)))
+            X = np.vstack([decs(self.pop[[p]]), decs(self.e_archive[[q]])])
+            off = self.evaluate(ga_half(self.problem, X, rng=rng))[0]
             self.pop = _update_population(self.pop, off, rng)
             self.e_archive = _update_archive(self.e_archive, off, self.epsilon)
 

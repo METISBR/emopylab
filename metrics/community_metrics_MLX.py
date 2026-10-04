@@ -137,7 +137,7 @@ if _HAS_MLX:
         diff = mx.abs(mx.expand_dims(pop, 1) - mx.expand_dims(pop, 0))
         d = mx.sum(diff, axis=2)
         # Mask diagonal with +inf while preserving off-diagonal distances.
-        d_masked = d + mx.eye(pop.shape[0]) * float("inf")
+        d_masked = mx.where(mx.eye(pop.shape[0]) > 0, float("inf"), d)
         min_d = mx.min(d_masked, axis=1)
         n = float(pop.shape[0])
         d_bar = mx.mean(min_d)

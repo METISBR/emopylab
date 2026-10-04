@@ -85,7 +85,11 @@ def environmental_selection(
     F = np.asarray(pop.get("F"), dtype=float)
     if z_min is None:
         z_min = np.ones(Z.shape[1])
-    fn, max_fno = NDSort(F, N)
+    G = pop.get("G")
+    if G is None or np.size(G) == 0:
+        fn, max_fno = NDSort(F, N)
+    else:
+        fn, max_fno = NDSort(F, np.asarray(G, dtype=float).reshape(len(F), -1), N)
     fn = np.asarray(fn, dtype=float).reshape(-1)
     next_mask = fn < float(max_fno)
     last = np.where(fn == float(max_fno))[0]
@@ -112,7 +116,7 @@ def _last_selection(
     try:
         hyperplane = np.linalg.solve(P[extreme], np.ones(M))
         a = 1.0 / hyperplane
-        if np.any(~np.isfinite(a)) or np.any(a <= 0):
+        if np.any(~np.isfinite(a)):
             a = P.max(axis=0)
     except np.linalg.LinAlgError:
         a = P.max(axis=0)
@@ -186,8 +190,15 @@ class ANSGAIII(Algorithm):
         if len(self.pop) == 0:
             self.opt = self.pop
             return
-        self.z_min = np.asarray(self.pop.get("F"), dtype=float).min(axis=0)
+        self.z_min = self._feasible_min(self.pop, None)
         self._set_optimum()
+
+    def _feasible_min(self, pop, z_min):
+        """Ideal point over the feasible solutions only (None while no solution is feasible)."""
+        F = np.asarray(pop.get("F"), dtype=float)[self._population_cv(pop) <= 0]
+        if len(F) == 0:
+            return z_min
+        return F.min(axis=0) if z_min is None else np.minimum(z_min, F.min(axis=0))
 
     def _infill(self):
         if self.pop is None or len(self.pop) == 0:
@@ -202,8 +213,7 @@ class ANSGAIII(Algorithm):
     def _advance(self, infills=None, **kwargs):
         if infills is None or len(infills) == 0:
             return
-        off_F = np.asarray(infills.get("F"), dtype=float)
-        self.z_min = np.minimum(self.z_min, off_F.min(axis=0))
+        self.z_min = self._feasible_min(infills, self.z_min)
         merged = Population.merge(self.pop, infills)
         self.pop = environmental_selection(
             merged, self.pop_size, self.Z, self.z_min, self.random_state,

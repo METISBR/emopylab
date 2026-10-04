@@ -82,7 +82,7 @@ class _GNGNet:
         self.max_iter = 1
         self.max_age = int(max_age)
         self.max_node = int(max_node)
-        self.lam = max(1, int(lam))
+        self.lam = float(lam)              # 0.2*N, possibly fractional (then insertions are rare)
         self.max_hp = int(max_hp)
         self.node = np.zeros((0, 0))       # training-state nodes
         self.node_s = np.zeros((0, 0))     # expanded nodes (Algorithm 3)
@@ -132,7 +132,7 @@ def gng_update(
             age = np.zeros((2, 2))
             hp = np.full(2, float(net.max_hp))
 
-        for pattern in signals:
+        for num_sig, pattern in enumerate(signals, 1):
             if node.shape[0] < 2:  # safety: re-seed from data
                 node = np.vstack([node, pattern[None, :]])
                 err = np.append(err, 0.0)
@@ -174,8 +174,7 @@ def gng_update(
                 if node.shape[0] < 2:
                     continue
 
-            net._sig_count += 1
-            if net._sig_count % net.lam == 0 and node.shape[0] < net.max_node:
+            if net.lam > 0 and num_sig % net.lam == 0 and node.shape[0] < net.max_node:
                 r1 = int(np.argmax(err))
                 r2 = int(np.argmax(edge[:, r1] * err))
                 new = 0.5 * (node[r1] + node[r2])
@@ -237,8 +236,7 @@ def reference_combination(Ru: np.ndarray, net: _GNGNet) -> np.ndarray:
 
     d3 = backend_cdist(Ru, node_p)
     choose = np.all(d3 > avg_dis, axis=1)
-    Ruq = Ru[choose]
-    return Ruq if len(Ruq) > 0 else Ru[:1]
+    return Ru[choose]
 
 
 def tune_pbi(net: _GNGNet, eps: float) -> np.ndarray:

@@ -4,6 +4,7 @@ Standalone implementation of Survival, ToReplacement, and split_by_feasibility (
 
 from __future__ import annotations
 
+import abc
 from abc import abstractmethod
 from typing import Any, List, Optional, Tuple, Union
 import numpy as np
@@ -18,7 +19,7 @@ __all__ = [
 ]
 
 
-class Survival:
+class Survival(abc.ABC):
     """Base class for survival selection operators."""
 
     def __init__(self, filter_infeasible: bool = True) -> None:

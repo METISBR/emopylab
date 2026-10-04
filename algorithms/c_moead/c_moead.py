@@ -8,80 +8,65 @@ H. Jain and K. Deb. IEEE TEC, 2014, 18(4): 602-622.
 from __future__ import annotations
 
 import numpy as np
-from core.algorithm import Algorithm
 
+from algorithms.community_utils.base import LoopAlgorithm, cv, de, decs, ga_half, nd_sort, objs, roulette
 from algorithms.community_utils.moead_family import (
-    Task,
-    choose_parent_pool,
-    cv_from_cons,
-    gahalf_offspring,
-    ind_F,
-    ind_G,
-    pbi_values,
-    pop_F,
-    population_cv,
-    rng_from_algo,
-    sample_initial,
-    set_optimum_from_pop,
-    weight_vectors,
+    choose_dra_indices,
     neighbors,
+    normalize_du,
+    pbi_values,
+    set_weight_dcwv,
+    tchebycheff_values,
+    update_pi_dra,
+    update_weight_dcwv,
+    weight_vectors,
 )
-
 
 ALGORITHM_FLAGS = {"CMOEAD": {"multi", "many", "constrained", "real", "integer", "binary", "permutation", "label"}}
 
 
-class CMOEAD(Algorithm):
+class CMOEAD(LoopAlgorithm):
+    """Steady-state MOEA/D with PBI (theta 5): an offspring replaces at most ``nr`` neighbours that violate the
+    constraints more, or equally with a worse PBI value."""
+
     def __init__(self, pop_size=100, delta=0.9, sampling=None, ref_dirs=None, **kwargs):
-        super().__init__(**kwargs)
-        self.pop_size = int(pop_size)
+        super().__init__(pop_size=pop_size, sampling=sampling, **kwargs)
         self.delta = float(delta)
-        self.sampling = sampling
         self.ref_dirs = ref_dirs
 
-    def _initialize_infill(self):
+    def initial_size(self):
         if self.ref_dirs is not None:
             self.W = np.asarray(self.ref_dirs, dtype=float)
-            self.pop_size = len(self.W)
         else:
-            self.W, n = weight_vectors(self.pop_size, self.problem.n_obj)
-            self.pop_size = n
-        self.T = int(np.ceil(self.pop_size / 10))
-        self.nr = max(1, int(np.ceil(self.pop_size / 100)))
+            self.W = weight_vectors(self.pop_size, self.problem.n_obj)[0]
+        self.pop_size = n = len(self.W)
+        self.T = int(np.ceil(n / 10))
+        self.nr = int(np.ceil(n / 100))
         self.B = neighbors(self.W, self.T)
-        return sample_initial(self.problem, self.pop_size, self.sampling, rng_from_algo(self))
+        return n
 
-    def _initialize_advance(self, infills=None, **kwargs):
-        self.pop = infills
-        self.Z = np.min(pop_F(self.pop), axis=0)
+    def start(self):
+        self.Z = objs(self.pop).min(axis=0)
 
-    def _infill(self):
-        rng = rng_from_algo(self)
-        self._tasks: list[Task] = []
-        offs = []
-        for i in range(self.pop_size):
-            P = choose_parent_pool(i, self.B, self.pop_size, rng, self.delta)
-            off = gahalf_offspring(self.problem, self.pop, int(P[0]), int(P[1]), rng)
-            self._tasks.append(Task(i=i, parents_pool=np.asarray(P, dtype=int)))
-            offs.append(off)
-        from algorithms.community_utils.moead_family import ensure_population
-        return ensure_population(offs)
+    def _off_de(self, i, P):
+        X = decs(self.pop)
+        return self.evaluate(de(self.problem, X[[i]], X[[P[0]]], X[[P[1]]], rng=self.rng))
 
-    def _advance(self, infills=None, **kwargs):
-        for off, task in zip(infills, self._tasks):
-            off_f = ind_F(off)
-            off_g = ind_G(off)
-            self.Z = np.minimum(self.Z, off_f)
-            P = task.parents_pool
-            cv_p = population_cv(self.pop[P])
-            cv_o = cv_from_cons(off_g)
-            g_old = pbi_values(pop_F(self.pop[P]), self.Z, self.W[P], theta=5.0)
-            g_new = pbi_values(np.repeat(off_f[None, :], len(P), axis=0), self.Z, self.W[P], theta=5.0)
-            cond = ((g_old >= g_new) & (cv_p == cv_o)) | (cv_p > cv_o)
-            repl = np.where(cond)[0][: self.nr]
-            if repl.size:
-                self.pop[P[repl]] = off
+    def _off_ga(self, a, b):
+        return self.evaluate(ga_half(self.problem, decs(self.pop[[int(a), int(b)]]), rng=self.rng))
 
-    def _set_optimum(self):
-        set_optimum_from_pop(self)
+    def _replace(self, idx, off):
+        for j in idx:
+            self.pop[int(j)] = off[0]
 
+    def step(self):
+        rng, N = self.rng, self.pop_size
+        for i in range(N):
+            P = self.B[i, rng.permutation(self.T)] if rng.random() < self.delta else rng.permutation(N)
+            off = self._off_ga(P[0], P[1])
+            f = objs(off)[0]
+            self.Z = np.minimum(self.Z, f)
+            cvo, cvp = cv(off)[0], cv(self.pop[P])
+            g_old = pbi_values(objs(self.pop[P]), self.Z, self.W[P], 5.0)
+            g_new = pbi_values(np.tile(f, (len(P), 1)), self.Z, self.W[P], 5.0)
+            self._replace(P[np.where(((g_old >= g_new) & (cvp == cvo)) | (cvp > cvo))[0][: self.nr]], off)

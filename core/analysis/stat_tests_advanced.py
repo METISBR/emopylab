@@ -12,6 +12,7 @@ Provides:
 from __future__ import annotations
 
 import math
+from statistics import NormalDist
 from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
@@ -104,12 +105,15 @@ def vargha_delaney_a12(sample1: np.ndarray, sample2: np.ndarray) -> Tuple[float,
     u_stat, _ = stats.mannwhitneyu(s1, s2, alternative="two-sided")
     a12 = float(u_stat / (n1 * n2))
 
-    dev = abs(a12 - 0.5)
-    if dev < 0.06:
+    # Symmetric magnitude on max(A12, 1 - A12). Rounding to 12 decimals removes the
+    # floating-point asymmetry that labelled 0.71 "medium" but 0.29 "large"
+    # (revision 2026-09; see tests/test_stat_tests_advanced.py).
+    a_sym = round(max(a12, 1.0 - a12), 12)
+    if a_sym < 0.56:
         mag = "negligible"
-    elif dev < 0.14:
+    elif a_sym < 0.64:
         mag = "small"
-    elif dev < 0.21:
+    elif a_sym < 0.71:
         mag = "medium"
     else:
         mag = "large"
@@ -121,11 +125,18 @@ def holm_bonferroni_correction(p_values: List[float], alpha: float = 0.05) -> Li
 
     Returns list of (adjusted_p_value, is_significant) tuples preserving original order.
     """
-    m = len(p_values)
-    if m == 0:
+    if len(p_values) == 0:
         return []
 
-    indexed_p = sorted(enumerate(p_values), key=lambda x: x[1])
+    # Non-finite p-values (tests that could not be computed) are not members of
+    # the family: they are returned as (nan, False) and do not count in m
+    # (revision 2026-09; previously one NaN poisoned the whole family).
+    finite = [(i, float(p)) for i, p in enumerate(p_values) if p is not None and np.isfinite(p)]
+    m = len(finite)
+    if m == 0:
+        return [(float("nan"), False) for _ in p_values]
+
+    indexed_p = sorted(finite, key=lambda x: x[1])
     adjusted_indexed = []
 
     running_max = 0.0
@@ -136,9 +147,43 @@ def holm_bonferroni_correction(p_values: List[float], alpha: float = 0.05) -> Li
         is_sig = running_max < alpha
         adjusted_indexed.append((orig_idx, running_max, is_sig))
 
-    # Restore original index order
-    adjusted_indexed.sort(key=lambda x: x[0])
-    return [(adj, sig) for _, adj, sig in adjusted_indexed]
+    # Restore original index order (non-finite inputs -> (nan, False))
+    out: List[Tuple[float, bool]] = [(float("nan"), False) for _ in p_values]
+    for orig_idx, adj, sig in adjusted_indexed:
+        out[orig_idx] = (adj, bool(sig))
+    return out
+
+
+def hodges_lehmann_shift(
+    sample1: np.ndarray, sample2: np.ndarray, confidence: float = 0.95
+) -> Tuple[float, float, float]:
+    """Hodges-Lehmann location shift (sample1 - sample2) with a distribution-free CI.
+
+    Estimate: median of all pairwise differences x_i - y_j. Confidence interval:
+    Moses' order-statistic interval on the sorted pairwise differences, with the
+    Mann-Whitney critical value from the normal approximation
+    (Hollander, Wolfe & Chicken, Nonparametric Statistical Methods, Sec. 4.3).
+    Complements the Wilcoxon rank-sum (Mann-Whitney U) test and the A12 effect size
+    by giving a confidence interval in the units of the metric.
+
+    Returns (estimate, lower, upper); (nan, nan, nan) if a sample is empty.
+    """
+    x = np.asarray(sample1, dtype=float)
+    y = np.asarray(sample2, dtype=float)
+    x = x[np.isfinite(x)]
+    y = y[np.isfinite(y)]
+    n1, n2 = len(x), len(y)
+    if n1 == 0 or n2 == 0:
+        return float("nan"), float("nan"), float("nan")
+    diffs = np.sort((x[:, None] - y[None, :]).ravel())
+    estimate = float(np.median(diffs))
+    n_pairs = diffs.size
+    z = float(NormalDist().inv_cdf(0.5 + confidence / 2.0))  # stdlib: works without scipy
+    k = int(np.floor(n1 * n2 / 2.0 - z * np.sqrt(n1 * n2 * (n1 + n2 + 1) / 12.0)))
+    k = max(0, min(k, (n_pairs - 1) // 2))
+    lower = float(diffs[k])
+    upper = float(diffs[n_pairs - 1 - k])
+    return estimate, lower, upper
 
 
 def friedman_ranking_test(data_matrix: np.ndarray, algorithm_names: List[str]) -> Dict[str, Any]:

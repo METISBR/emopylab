@@ -31,7 +31,31 @@ class Evaluator:
         self.evaluate_values_of = evaluate_values_of
         self.skip_already_evaluated = skip_already_evaluated
         self.callback = callback
-        self.n_eval = 0
+        self._n_eval_manual = 0
+        self._problem: Any = None
+        self._fe0 = 0
+
+    @property
+    def n_eval(self) -> int:
+        """Function evaluations consumed on the bound problem (all callers, not only this evaluator)."""
+        if self._problem is None:
+            return self._n_eval_manual
+        return int(self._problem.n_fe) - self._fe0
+
+    @n_eval.setter
+    def n_eval(self, value: int) -> None:
+        if self._problem is None:
+            self._n_eval_manual = int(value)
+        else:
+            self._fe0 = int(self._problem.n_fe) - int(value)
+
+    def _bind(self, problem: Any) -> None:
+        if not hasattr(problem, "n_fe"):
+            problem.n_fe = 0
+        if self._problem is not problem:
+            carry = self.n_eval
+            self._problem = problem
+            self._fe0 = int(problem.n_fe) - carry
 
     def eval(
         self,
@@ -61,11 +85,14 @@ class Evaluator:
         else:
             I = list(range(len(pop)))
 
+        self._bind(problem)
+        fe_before = int(problem.n_fe)
         if len(I) > 0:
             self._eval(problem, pop[I], evaluate_values_of, **kwargs)
 
-        if count_evals:
-            self.n_eval += len(I)
+        if not count_evals:
+            # Evaluations requested as "free" (e.g. re-evaluation for reporting) are excluded from the budget.
+            self._fe0 += int(problem.n_fe) - fe_before
 
         if self.callback:
             self.callback(pop)

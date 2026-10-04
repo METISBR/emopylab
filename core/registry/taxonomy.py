@@ -48,11 +48,17 @@ TIER_1_NATIVE_REGISTRY: dict[str, dict[str, Any]] = {
         "year": 2002,
         "flags": {"many", "multi", "real", "stochastic_differential_equations", "gradient_free"},
     },
-    "ssw2": {
-        "name": "SSW2",
-        "reference": "Population-Based Stochastic Steepest Weights with Ensemble Jacobian (Santos & Xavier 2026)",
+    "gsa_ssw_mud": {
+        "name": "GSA-SSW-MUD",
+        "reference": "Population-Based Stochastic Optimizer with Gradient Subspace Approximation and Uniform Design (Santos & METISBr 2026)",
         "year": 2026,
-        "flags": {"many", "multi", "real", "ensemble_jacobian", "stochastic_differential"},
+        "flags": {"many", "multi", "real", "gradient_subspace_approximation", "stochastic_differential", "mud"},
+    },
+    "ssw2": {
+        "name": "GSA-SSW-MUD",
+        "reference": "Population-Based Stochastic Optimizer with Gradient Subspace Approximation and Uniform Design (Santos & METISBr 2026)",
+        "year": 2026,
+        "flags": {"many", "multi", "real", "gradient_subspace_approximation", "stochastic_differential", "mud"},
     },
     "maaco": {
         "name": "MAACO",

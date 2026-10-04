@@ -206,6 +206,10 @@ class Problem:
         else:
             only_single_value = not (isinstance(X, (list, tuple, np.ndarray)))
 
+        # Function-evaluation accounting lives on the problem (single funnel for every
+        # caller: evaluator, variation operators, surrogate refinement, ...).
+        self.n_fe = getattr(self, "n_fe", 0) + (len(X) if hasattr(X, "__len__") and not only_single_value else 1)
+
         _out = self.do(X, return_values_of, *args, **kwargs)
 
         out = {}

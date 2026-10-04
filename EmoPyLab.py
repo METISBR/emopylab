@@ -659,7 +659,7 @@ MANY_OBJECTIVE_ALGO_HINTS = {
     "agemoeaii",
 }
 
-LOCAL_ALGORITHM_EXCLUDED_ROOTS = {"base", "moo", "soo", "__pycache__"}
+LOCAL_ALGORITHM_EXCLUDED_ROOTS = {"base", "moo", "soo", "community_utils", "__pycache__"}
 LOCAL_ALGORITHM_EXCLUDED_FILES = {"hyperparameters.py"}
 OPTIONAL_BUILTIN_ALGORITHM_MODULE_HINTS = {"optuna"}
 EXCLUDED_BUILTIN_ALGORITHM_MODULE_HINTS = {"mopso_cd"}
@@ -6740,7 +6740,7 @@ class EmoPyLabMainWindow(QMainWindow):
         status_bar.addWidget(hw_label)
 
         # Version & Research Group Attribution
-        ver_label = QLabel('<span style="color: #64748B;">EmoPyLab v1.0.6 • </span>')
+        ver_label = QLabel('<span style="color: #64748B;">EmoPyLab v1.0.7 • </span>')
         status_bar.addPermanentWidget(ver_label)
 
         metis_link = QLabel(

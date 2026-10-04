@@ -72,7 +72,7 @@ def _environment_selection(population: Population, n: int) -> Population:
     selected = front_no < max_f_no
     crowd_dis = CrowdingDistance(pop_obj, front_no)
     last = np.where(front_no == max_f_no)[0]
-    rank = np.argsort(-crowd_dis[last])
+    rank = np.argsort(-crowd_dis[last], kind="stable")
     n_last = n - int(np.sum(selected))
     if n_last > 0:
         selected[last[rank[:n_last]]] = True
@@ -85,7 +85,7 @@ def _fitness_selection(fitness: np.ndarray, n: int) -> tuple[np.ndarray, np.ndar
     selected = front_no < max_f_no
     crowd_dis = CrowdingDistance(fitness, front_no)
     last = np.where(front_no == max_f_no)[0]
-    rank = np.argsort(-crowd_dis[last])
+    rank = np.argsort(-crowd_dis[last], kind="stable")
     n_last = n - int(np.sum(selected))
     if n_last > 0:
         selected[last[rank[:n_last]]] = True
@@ -111,9 +111,10 @@ def _evolve_by_moead(problem, population: Population, w: np.ndarray,
 
     # Associate each subproblem with one solution.
     g = np.zeros((pop_size, pop_size), dtype=float)
-    for i in range(pop_size):
-        g[i, :] = np.max(np.abs(f[i] - z) / np.maximum(w, 1e-12), axis=1)
-    rank = np.argsort(g, axis=1)
+    with np.errstate(all="ignore"):
+        for i in range(pop_size):
+            g[i, :] = np.max(np.abs(f[i] - z) / scaled_w, axis=1)
+    rank = np.argsort(g, axis=1, kind="stable")
     associate = np.full(pop_size, -1, dtype=int)
     for i in range(pop_size):
         for idx in rank[i]:
@@ -155,8 +156,9 @@ def _evolve_by_moead(problem, population: Population, w: np.ndarray,
 
             pool = pop[p]
             pool_f = np.asarray(pool.get("F"), dtype=float)
-            g_old = np.max(np.abs(pool_f - z) / np.maximum(w[p, :], 1e-12), axis=1)
-            g_new = np.max(np.abs(off_f - z) / np.maximum(w[p, :], 1e-12), axis=1)
+            with np.errstate(all="ignore"):
+                g_old = np.max(np.abs(pool_f - z) / scaled_w[p, :], axis=1)
+                g_new = np.max(np.abs(off_f - z) / scaled_w[p, :], axis=1)
             replace = np.where(g_old >= g_new)[0]
             for r in replace:
                 pop[p[r]] = offspring[0]
@@ -165,7 +167,7 @@ def _evolve_by_moead(problem, population: Population, w: np.ndarray,
 
 def _cal_con(range_obj: np.ndarray, pop_obj: np.ndarray) -> np.ndarray:
     """Convergence measure used inside LERD."""
-    norm = (pop_obj - range_obj[0]) / np.maximum(range_obj[1] - range_obj[0], 1e-6)
+    norm = (pop_obj - range_obj[0]) / (range_obj[1] - range_obj[0] + 1e-6)
     return np.sum(norm, axis=1)
 
 
@@ -372,14 +374,15 @@ class LERD(Algorithm):
                 break
             dv = np.where(self.par_dec[g])[0]
             pv = np.where(~self.par_dec[g])[0]
-            if len(dv) > 0:
+            # an empty variable subset still evaluates N copies, as in the reference
+            if True:
                 self.pop = _second_optimization(
                     self.problem, self.pop, dv, 1, self.evaluator, rng,
                     max_evals=self._eval_budget_limit(),
                 )
             if self._remaining_eval_budget() <= 0:
                 break
-            if len(pv) > 0:
+            if True:
                 self.pop = _second_optimization(
                     self.problem, self.pop, pv, 1, self.evaluator, rng,
                     max_evals=self._eval_budget_limit(),

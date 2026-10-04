@@ -96,10 +96,18 @@ def get_reference_directions(
     name_clean = str(name).strip().lower().replace("_", "-")
     n_obj = int(n_obj)
 
-    if name_clean in ("energy",):
+    if name_clean in ("mud", "uniform", "uniform-design", "glp"):
+        try:
+            from operators.utility_functions._common import uniform_point
+            n_pts = n_points or (100 if n_partitions is None else (int(n_partitions) if int(n_partitions) > 20 else das_dennis_ref_dirs(n_obj, int(n_partitions)).shape[0]))
+            dirs, _ = uniform_point(n_pts, n_obj, method="mud")
+            return np.ascontiguousarray(dirs, dtype=float)
+        except Exception:
+            pass
+
+    if name_clean in ("energy", "riesz", "riesz-energy"):
         n_pts = n_points or 100
         return _energy_ref_dirs(n_obj, n_pts)
-
     if name_clean in ("multi-layer", "layer"):
         if isinstance(n_partitions, (list, tuple)):
             return _multi_layer_ref_dirs(n_obj, n_partitions, kwargs.get("scaling"))
@@ -136,9 +144,4 @@ def get_ref_dirs(n_obj: int) -> np.ndarray:
     elif n_obj == 3:
         return get_reference_directions("das-dennis", 3, n_partitions=15)
     else:
-        try:
-            from operators.utility_functions.UniformPoint import UniformPoint
-            pts, _ = UniformPoint(500, n_obj)
-            return pts
-        except Exception:
-            return get_reference_directions("das-dennis", n_obj, n_partitions=5)
+        return get_reference_directions("das-dennis", n_obj, n_partitions=5)

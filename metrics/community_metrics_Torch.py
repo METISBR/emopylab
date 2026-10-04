@@ -161,7 +161,7 @@ def _metric_Spacing_Torch(front: Any, context: dict[str, Any] = None) -> float:
 
     diff = torch.abs(pop_t.unsqueeze(1) - pop_t.unsqueeze(0))
     d = torch.sum(diff, dim=2)
-    d = d + torch.eye(N, device=dev) * float("inf")
+    d = torch.where(torch.eye(N, device=dev, dtype=torch.bool), torch.full_like(d, float("inf")), d)
     min_d = torch.min(d, dim=1).values
     spacing = torch.std(min_d, unbiased=True)
     return float(spacing.item())

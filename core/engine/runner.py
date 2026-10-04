@@ -136,24 +136,13 @@ def _resolve_algorithm_instance(algorithm_name: str, pop_size: int = 100, **kwar
     elif name_clean in ("NSGA3", "NSGAIII"):
         from algorithms.nsga3.nsga3 import NSGA3
         from util.ref_dirs import get_reference_directions
-        from operators.utility_functions.UniformPoint import UniformPoint
         n_obj = kwargs.get("n_obj")
         ref_dirs = kwargs.get("ref_dirs")
         if ref_dirs is None and n_obj is not None:
             if n_obj <= 2:
-                ref_dirs, n_eff = UniformPoint(pop_size, n_obj)
-                pop_size = int(n_eff)
+                ref_dirs = get_reference_directions("das-dennis", n_obj, n_partitions=pop_size - 1)
             else:
-                if n_obj <= 3:
-                    p = 12
-                elif n_obj <= 5:
-                    p = 6
-                elif n_obj <= 8:
-                    p = 3
-                else:
-                    p = 2
-                ref_dirs = get_reference_directions("das-dennis", n_obj=n_obj, n_partitions=p)
-                pop_size = max(pop_size, len(ref_dirs))
+                ref_dirs = get_reference_directions("mud", n_obj=n_obj, n_points=pop_size)
         algo_kwargs = {k: v for k, v in kwargs.items() if k not in ("n_obj", "ref_dirs", "pop_size")}
         return NSGA3(ref_dirs=ref_dirs, pop_size=pop_size, **algo_kwargs)
     elif name_clean in ("MOEAD", "MOEA/D"):
@@ -163,7 +152,7 @@ def _resolve_algorithm_instance(algorithm_name: str, pop_size: int = 100, **kwar
             n_obj = kwargs.get("n_obj", 3)
             ref_dirs = kwargs.get("ref_dirs")
             if ref_dirs is None:
-                ref_dirs = get_reference_directions("das-dennis", n_obj, n_partitions=12)
+                ref_dirs = get_reference_directions("mud", n_obj=n_obj, n_points=pop_size)
             return MOEAD(ref_dirs=ref_dirs, n_neighbors=15)
         except Exception:
             pass
@@ -194,12 +183,12 @@ def _resolve_algorithm_instance(algorithm_name: str, pop_size: int = 100, **kwar
             return SSW(**algo_kwargs)
         except Exception:
             pass
-    elif name_clean in ("SSW2", "SSWII"):
+    elif name_clean in ("GSASSWMUD", "GSASSW", "GSASSWII", "GSASSW2", "GSA_SSW_MUD", "SSW2", "SSWII"):
         try:
-            from algorithms.ssw2.ssw2 import SSW2
+            from algorithms.gsa_ssw_mud import GSASSWMUD
             algo_kwargs = dict(kwargs)
             algo_kwargs = {k: v for k, v in algo_kwargs.items() if k not in ("n_obj", "pop_size")}
-            return SSW2(pop_size=pop_size, **algo_kwargs)
+            return GSASSWMUD(pop_size=pop_size, **algo_kwargs)
         except Exception:
             pass
     # 2. Try exact match or normalized match in algorithms/ directory

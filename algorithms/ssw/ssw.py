@@ -191,16 +191,20 @@ class SSW(Algorithm):
 
     def __init__(
         self,
-        n_points: int = 100,
-        step_size: float = 0.01,
-        epsilon: float = 0.15,
-        delta: float = 0.1,
+        n_points: int = 1,
+        pop_size: int | None = None,
+        step_size: float = 0.1,
+        epsilon: float = 0.01,
+        delta: float = 0.01,
+        tol_q: float = 1e-3,
+        gated_diffusion: bool = True,
+        boundary_mode: str = "project",
         jac=None,
         jacobian_mode: str = "auto",
         autodiff_func=None,
         archive_size: int | None = None,
-        adaptive_step: bool = False,
-        max_halvings: int = 3,
+        adaptive_step: bool = True,
+        max_halvings: int = 5,
         finite_difference_step: float = 1e-7,
         strict_evaluation_budget: bool = True,
         output=MultiObjectiveOutput(),
@@ -221,8 +225,14 @@ class SSW(Algorithm):
             "SSW Jacobian and simplex-QP paths currently use the CPU backend.",
         )
 
-        if int(n_points) < 1:
+        final_archive_size = int(archive_size if archive_size is not None else (pop_size if pop_size is not None else 100))
+        if final_archive_size < 1:
+            raise ValueError("pop_size (or archive_size) must be positive")
+        self.n_points = int(n_points if n_points is not None else 1)
+        if self.n_points < 1:
             raise ValueError("n_points must be positive")
+        self.pop_size = final_archive_size
+        self.archive_size = final_archive_size
         if float(step_size) <= 0.0:
             raise ValueError("step_size must be positive")
         if float(epsilon) < 0.0:
@@ -241,14 +251,16 @@ class SSW(Algorithm):
         if mode == "autodiff" and autodiff_func is None:
             raise ValueError("jacobian_mode='autodiff' requires autodiff_func")
 
-        self.n_points = int(n_points)
+        self.current_x = None
         self.step_size = float(step_size)
         self.epsilon = float(epsilon)
         self.delta = float(delta)
+        self.tol_q = float(tol_q)
+        self.gated_diffusion = bool(gated_diffusion)
+        self.boundary_mode = str(boundary_mode).strip().lower()
         self.jac = jac
         self.jacobian_mode = mode
         self.autodiff_func = autodiff_func
-        self.archive_size = int(archive_size or n_points)
         self.adaptive_step = bool(adaptive_step)
         self.max_halvings = max(0, int(max_halvings))
         self.finite_difference_step = float(finite_difference_step)
@@ -274,14 +286,16 @@ class SSW(Algorithm):
         lower = np.asarray(self.problem.xl, dtype=float)
         upper = np.asarray(self.problem.xu, dtype=float)
         random = self.random_state.random((self.n_points, self.problem.n_var))
-        return Population.new("X", lower + random * (upper - lower))
+        x0 = lower + random * (upper - lower)
+        self.current_x = x0.copy()
+        return Population.new("X", x0)
 
     def _initialize_advance(self, infills=None, **kwargs):
-        """Store the evaluated trajectories and initialize the archive."""
-        self.pop = infills
-        self.ssw_archive = self._truncate_archive(
-            filter_optimum(infills, least_infeasible=True)
-        )
+        """Store the initial point and initialize the non-dominated archive."""
+        self.current_x = np.asarray(infills.get("X"), dtype=float)
+        self.ssw_archive = filter_optimum(infills, least_infeasible=True)
+        self.opt = self.ssw_archive
+        self.pop = self.ssw_archive
 
     def _resolve_jacobian_mode(self) -> str:
         if self.jacobian_mode != "auto":
@@ -332,43 +346,38 @@ class SSW(Algorithm):
         return np.asarray(batch, dtype=float)
 
     def _finite_difference_jacobian(self, X: np.ndarray) -> np.ndarray:
-        """Approximate Jacobians without evaluating outside the box.
-
-        Centered differences are used in the interior.  At a bound, clipping
-        automatically produces the corresponding one-sided difference.  This
-        keeps every charged function evaluation feasible and makes the
-        derivative path consistent with the projected numerical dynamics.
-        """
+        """Approximate Jacobians using exactly n evaluations per trajectory, matching jacob.m."""
         n_points, n_var = X.shape
         n_obj = int(self.problem.n_obj)
         h = self.finite_difference_step
 
-        replicated = np.tile(X[:, np.newaxis, :], (1, n_var, 1))
+        X_clamped = np.clip(X, self.problem.xl, self.problem.xu) if self.problem.has_bounds() else X
+
+        # Base evaluation at current points
+        pop_base = Population.new("X", X_clamped)
+        self.evaluator.eval(self.problem, pop_base)
+        f_base = pop_base.get("F")  # shape (n_points, n_obj)
+
+        # Forward perturbation for each coordinate k = 1, ..., n (n evaluations)
+        replicated = np.tile(X_clamped[:, np.newaxis, :], (1, n_var, 1))
         perturbation = np.eye(n_var) * h
         plus_batch = replicated + perturbation[np.newaxis, :, :]
-        minus_batch = replicated - perturbation[np.newaxis, :, :]
-        plus_batch = np.clip(plus_batch, self.problem.xl, self.problem.xu)
-        minus_batch = np.clip(minus_batch, self.problem.xl, self.problem.xu)
+        if self.problem.has_bounds():
+            upper_mask = plus_batch > self.problem.xu
+            plus_batch[upper_mask] = replicated[upper_mask] - h
+
         plus = plus_batch.reshape(-1, n_var)
-        minus = minus_batch.reshape(-1, n_var)
-
         pop_plus = Population.new("X", plus)
-        pop_minus = Population.new("X", minus)
-        self.evaluator.eval(self.problem, pop_plus)
-        self.evaluator.eval(self.problem, pop_minus)
-
+        self.evaluator.eval(self.problem, pop_plus)  # exactly n_points * n_var evaluations
         f_plus = pop_plus.get("F").reshape(n_points, n_var, n_obj)
-        f_minus = pop_minus.get("F").reshape(n_points, n_var, n_obj)
-        coordinate = np.arange(n_var)
-        denominator = (
-            plus_batch[:, coordinate, coordinate]
-            - minus_batch[:, coordinate, coordinate]
-        )
-        if np.any(denominator <= 0.0):
-            raise ValueError("finite differences require non-degenerate bounds")
-        return ((f_plus - f_minus) / denominator[:, :, np.newaxis]).transpose(
-            0, 2, 1
-        )
+
+        # Coordinate differences
+        diff_x = (plus_batch - replicated)[:, np.arange(n_var), np.arange(n_var)]
+        denominator = np.where(np.abs(diff_x) > 1e-14, diff_x, h)
+
+        f_base_expanded = f_base[:, np.newaxis, :]  # shape (n_points, 1, n_obj)
+        grad = (f_plus - f_base_expanded) / denominator[:, :, np.newaxis]
+        return grad.transpose(0, 2, 1)  # shape (n_points, n_obj, n_var)
 
     def _compute_jacobian(self, X: np.ndarray) -> np.ndarray:
         """Compute a batch of Jacobians with the selected derivative source."""
@@ -387,21 +396,39 @@ class SSW(Algorithm):
     def _project_bounds(self, X: np.ndarray) -> np.ndarray:
         if not self.problem.has_bounds():
             return X
+        if getattr(self, "boundary_mode", "project") == "restart":
+            # Matching stochbas.m:73-75: if outside domain, restart uniformly
+            inside = np.all((X >= self.problem.xl) & (X <= self.problem.xu), axis=1)
+            if not np.all(inside):
+                X_res = X.copy()
+                violated = np.where(~inside)[0]
+                lower = np.asarray(self.problem.xl, dtype=float)
+                upper = np.asarray(self.problem.xu, dtype=float)
+                rand = self.random_state.random((len(violated), self.problem.n_var))
+                X_res[violated] = lower + rand * (upper - lower)
+                return X_res
+            return X
         return np.clip(X, self.problem.xl, self.problem.xu)
 
     def _euler_maruyama_infill(self, X: np.ndarray) -> np.ndarray:
         jacobians = self._compute_jacobian(X)
         descent = self._descent_batch(jacobians)
+        q_norm = np.linalg.norm(descent, axis=1, keepdims=True)
+        diffusion_weight = (
+            np.where(q_norm < self.tol_q, self.epsilon, 0.0)
+            if self.gated_diffusion
+            else np.full_like(q_norm, self.epsilon)
+        )
         noise = self.random_state.standard_normal(X.shape)
         next_x = (
             X
             - self.step_size * descent
-            + self.epsilon * np.sqrt(self.step_size) * noise
+            + diffusion_weight * np.sqrt(self.step_size) * noise
         )
         return self._project_bounds(next_x)
 
     def _adaptive_infill(self, X: np.ndarray) -> np.ndarray:
-        """Execute the optional legacy two-half-step error controller."""
+        """Execute the two-half-step error controller matching stochbas.m:43-85."""
         n_points, n_var = X.shape
         done = np.zeros(n_points, dtype=bool)
         next_x = np.empty_like(X)
@@ -415,23 +442,31 @@ class SSW(Algorithm):
             sigma = self.sigma[active, np.newaxis]
             half_noise_scale = np.sqrt(sigma / 2.0)
 
+            # Gated diffusion matching stochbas.m:43-47
+            q_norm = np.linalg.norm(q_active, axis=1, keepdims=True)
+            diffusion_weight = (
+                np.where(q_norm < self.tol_q, self.epsilon, 0.0)
+                if self.gated_diffusion
+                else np.full_like(q_norm, self.epsilon)
+            )
+
             noise_1 = self.random_state.standard_normal((len(active), n_var))
             noise_2 = self.random_state.standard_normal((len(active), n_var))
             full = (
                 x_active
                 - sigma * q_active
-                + self.epsilon * (noise_1 + noise_2) * half_noise_scale
+                + diffusion_weight * (noise_1 + noise_2) * half_noise_scale
             )
-            midpoint = (
+            midpoint = self._project_bounds(
                 x_active
                 - 0.5 * sigma * q_active
-                + self.epsilon * noise_1 * half_noise_scale
+                + diffusion_weight * noise_1 * half_noise_scale
             )
             q_midpoint = self._descent_batch(self._compute_jacobian(midpoint))
             two_half_steps = (
                 midpoint
                 - 0.5 * sigma * q_midpoint
-                + self.epsilon * noise_2 * half_noise_scale
+                + diffusion_weight * noise_2 * half_noise_scale
             )
 
             accept = np.linalg.norm(full - two_half_steps, axis=1) < self.delta
@@ -452,7 +487,11 @@ class SSW(Algorithm):
         return self._project_bounds(next_x)
 
     def _infill(self):
-        X = np.asarray(self.pop.get("X"), dtype=float)
+        X = (
+            self.current_x
+            if self.current_x is not None
+            else np.asarray(self.pop.get("X"), dtype=float)[: self.n_points]
+        )
         if self.strict_evaluation_budget and not self._generation_fits_budget(len(X)):
             self.termination.terminate()
             return None
@@ -461,6 +500,7 @@ class SSW(Algorithm):
             if self.adaptive_step
             else self._euler_maruyama_infill(X)
         )
+        self.current_x = next_x.copy()
         return Population.new("X", next_x)
 
     def _generation_fits_budget(self, population_size: int) -> bool:
@@ -481,7 +521,7 @@ class SSW(Algorithm):
         mode = self._resolve_jacobian_mode()
         derivative_batches = 0
         if mode == "finite_difference":
-            derivative_batches = 2 * int(self.problem.n_var)
+            derivative_batches = int(self.problem.n_var)
             if self.adaptive_step:
                 derivative_batches *= 1 + self.max_halvings
         required = int(population_size) * (1 + derivative_batches)
@@ -506,7 +546,7 @@ class SSW(Algorithm):
         """Advance trajectories and update the separate coverage archive."""
         if infills is None:
             return
-        self.pop = infills
+        self.current_x = np.asarray(infills.get("X"), dtype=float)
         candidates = (
             infills
             if self.ssw_archive is None
@@ -514,7 +554,8 @@ class SSW(Algorithm):
         )
         non_dominated = filter_optimum(candidates, least_infeasible=True)
         self.ssw_archive = self._truncate_archive(non_dominated)
-
+        self.opt = self.ssw_archive
+        self.pop = self.ssw_archive
     def _set_optimum(self):
         self.opt = (
             self.ssw_archive

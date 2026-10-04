@@ -54,16 +54,21 @@ def _is_feasible(cons: np.ndarray) -> np.ndarray:
 
 
 def _environmental_selection(population: Population, offspring: Population, n_survive: int) -> Population:
-    pop_obj = np.asarray(population.get("F"), dtype=float)
-    pop_con = _constraint_matrix(population)
+    if offspring is None or len(offspring) == 0:
+        return population[:min(n_survive, len(population))]
+
+    n_off = len(offspring)
+    pop_slice = population[:n_off]
+    pop_obj = np.asarray(pop_slice.get("F"), dtype=float)
+    pop_con = _constraint_matrix(pop_slice)
     feasible_p = _is_feasible(pop_con)
 
     off_obj = np.asarray(offspring.get("F"), dtype=float)
     off_con = _constraint_matrix(offspring)
     feasible_o = _is_feasible(off_con)
 
-    if pop_con.size == 0:
-        weakly_better_con = np.ones(len(population), dtype=bool)
+    if pop_con.size == 0 or off_con.size == 0:
+        weakly_better_con = np.ones(n_off, dtype=bool)
     else:
         weakly_better_con = np.all(pop_con >= off_con, axis=1)
 
@@ -82,10 +87,12 @@ def _environmental_selection(population: Population, offspring: Population, n_su
 
     population = population.copy()
     if np.any(updated):
-        population[np.where(updated)[0]] = offspring[np.where(updated)[0]]
+        up_idx = np.where(updated)[0]
+        population[up_idx] = offspring[up_idx]
 
     if np.any(selected):
-        population = Population.merge(population, offspring[np.where(selected)[0]])
+        sel_idx = np.where(selected)[0]
+        population = Population.merge(population, offspring[sel_idx])
 
     pop_obj = np.asarray(population.get("F"), dtype=float)
     pop_con = _constraint_matrix(population)

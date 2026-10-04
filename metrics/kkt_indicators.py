@@ -277,3 +277,7 @@ def analyze_quantile_sensitivity(
                 score = calc_h_adap(pop_dec, problem, alpha=a, beta=b, residuals=s)
                 results[(round(a, 2), round(b, 2))] = score
     return results
+
+# Aliases for mathematical and community parity
+H_old = calc_h_old
+H_adap = calc_h_adap

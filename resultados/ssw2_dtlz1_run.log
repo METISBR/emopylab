@@ -1,0 +1,12 @@
+Seeds: [34625002, 81427144, 88427973, 63180695, 92388212]
+
+===== DTLZ1 =====
+  S0_baseline              HV=0.0000+-0.0000  dp=29.9504+-1.5231  (58s)
+  S1_power4_cooling        HV=0.0000+-0.0000  dp=28.9104+-2.5726  (62s)
+  S2_momentum_tangential   HV=0.0000+-0.0000  dp=31.1213+-0.7951  (54s)
+  S3_nesterov_lookahead    HV=0.0000+-0.0000  dp=32.8999+-1.5890  (58s)
+  S4_finishing             HV=0.0000+-0.0000  dp=29.7589+-1.6531  (57s)
+  S5_combo                 HV=0.0000+-0.0000  dp=30.6360+-1.5706  (62s)
+  NSGA3                    HV=1.3039+-0.0001  dp=0.0196+-0.0001  (13s)
+
+Saved -> resultados/ssw2_strategy_results.json

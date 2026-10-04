@@ -127,50 +127,31 @@ def _nondominated_mask_unconstrained(F: np.ndarray) -> np.ndarray:
 
 
 def _constraint_pareto_nondominated(pop: Population, add_constraint_rule: bool) -> np.ndarray:
-    F = _round_obj(pop.get("F"), decimals=10)
-    cv = _constraint_violation(pop)
-
-    # Fast path: unconstrained (all cv == 0) → use efficient compiled NDS.
-    # Avoids the O(n²) Python loop and the early-cut correctness issue.
-    if not np.any(cv > 0):
-        return _nondominated_mask_unconstrained(np.asarray(F, dtype=float))
-
-    # Constrained path: custom Constraint-Pareto dominance loop.
-    n, _m = F.shape
+    """Pairwise dominance scan over i < j on objectives rounded to 1e-10.  Identical objective vectors keep only one
+    copy (without the constraint rule the earlier one, with it the less violating one).  Without the constraint rule
+    plain weak dominance applies; with it a dominated solution is only discarded when the dominating one is feasible
+    or violates no more.  Every pair is visited (no pruning), as the constraint rule is not transitive."""
+    F = np.asarray(_round_obj(pop.get("F"), decimals=10), dtype=float)
+    cons = np.asarray(_constraint_violation(pop), dtype=float)
+    n = len(F)
     dominated = np.zeros(n, dtype=bool)
-
     for i in range(n - 1):
-        if dominated[i]:
-            continue
-
-        rem = np.arange(i + 1, n, dtype=int)
-        rem = rem[~dominated[rem]]
-        if rem.size == 0:
-            continue
-
-        diff = F[i] - F[rem]
-        max_err = np.max(diff, axis=1)
-        min_err = np.min(diff, axis=1)
-        eq = np.all(diff == 0.0, axis=1)
-
-        cvi = cv[i]
-        cvj = cv[rem]
-        # Constraint-Pareto dominance relations (add_constraint_rule=True)
-        dom_i = (eq & (cvi > cvj)) | (
-            (~eq) & (min_err >= 0.0) & ((cvj <= 0.0) | (cvj <= cvi))
-        )
-        dom_j = (eq & (cvi <= cvj)) | (
-            (~eq) & (~(min_err >= 0.0)) & (max_err <= 0.0) & ((cvi <= 0.0) | (cvi <= cvj))
-        )
-
-        # Mark all j dominated by i (no early cut — i may dominate others even if dominated itself)
-        if np.any(dom_j):
-            dominated[rem[dom_j]] = True
-
-        # Mark i as dominated if any j dominates i
-        if np.any(dom_i):
-            dominated[i] = True
-
+        err = F[i] - F[i + 1:]
+        eq = np.all(err == 0.0, axis=1)
+        min_ge = np.min(err, axis=1) >= 0.0
+        max_le = np.max(err, axis=1) <= 0.0
+        j = np.arange(i + 1, n)
+        if not add_constraint_rule:
+            dominated[j[eq | (~eq & ~min_ge & max_le)]] = True
+            if np.any(~eq & min_ge):
+                dominated[i] = True
+        else:
+            ci, cj = cons[i], cons[i + 1:]
+            dominated[j[eq & (ci <= cj)]] = True
+            i_dom = (eq & (ci > cj)) | (~eq & min_ge & ((cj <= 0) | (cj <= ci)))
+            dominated[j[~eq & ~min_ge & max_le & ((ci <= 0) | (ci <= cj))]] = True
+            if np.any(i_dom):
+                dominated[i] = True
     return ~dominated
 
 
@@ -498,7 +479,7 @@ class CMOEA_CD(Algorithm):
         n_feasible = int(np.sum(feasible))
 
         if n_feasible <= n_target:
-            idx = np.argsort(cv)[:n_target]
+            idx = np.argsort(cv, kind="stable")[:n_target]
             return pool[idx]
 
         pool_f = pool[np.where(feasible)[0]]
@@ -515,9 +496,7 @@ class CMOEA_CD(Algorithm):
             cd = _crowding_distance(Fn)
             rank = np.argsort(-cd)
             return pool_f[rank[:n_target]]
-        ref_dirs = self._fa_ref_dirs
-        if ref_dirs is None:
-            ref_dirs = _uniform_points(n_target, F.shape[1])
+        ref_dirs = _uniform_points(n_target, F.shape[1])      # UniformPoint(N, M) for this archive
         return _modified_nsga3_select(pool_f, n_target, zmin, zmax, ref_dirs, use_gpu=bool(self.use_gpu))
 
     def _diversity_enhancement_archive(

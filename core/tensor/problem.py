@@ -101,6 +101,9 @@ class TensorProblem(Problem):
             X_arr = X
         X_dev = to_device(X_arr)
         X_clamped = self.clamp(X_dev)
+        # same function-evaluation accounting as Problem.evaluate (evaluator budgets derive from ``n_fe``)
+        shape = getattr(X_dev, "shape", None)
+        self.n_fe = getattr(self, "n_fe", 0) + (int(shape[0]) if shape is not None and len(shape) > 1 else 1)
         F, G = self._evaluate(X_clamped)
         if return_values_of is not None or return_as_dictionary or kwargs.get("return_as_dictionary"):
             res_dict = {}

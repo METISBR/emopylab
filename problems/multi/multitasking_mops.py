@@ -54,6 +54,8 @@ class _BaseInstance(Problem):
             vtype=float,
             **kwargs,
         )
+        # the last variable is the task label (integer), every other variable is real
+        self.encoding = np.array([1] * (n_var - 1) + [3], dtype=int)
 
     def _calc_pareto_front(self, n_pareto_points=100):
         x = np.linspace(0.0, 1.0, max(2, int(n_pareto_points)))

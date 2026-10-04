@@ -118,7 +118,7 @@ def initialize_gng(V: np.ndarray, F: np.ndarray, N: int, rng: np.random.Generato
             x = V[valid[kk]].astype(float)
 
             d = np.linalg.norm(w - x[None, :], axis=1)
-            order = np.argsort(d)
+            order = np.argsort(d, kind="stable")
             s1, s2 = int(order[0]), int(order[1])
 
             t[s1, :] += 1.0
@@ -201,7 +201,7 @@ def train_gng(
     if gen <= round(0.9 * max_gen):
         max_iter, max_pz = 1, max_n
         if w.shape[0] == cap:
-            r = np.argsort(-flag)[: cap - N]
+            r = np.argsort(-flag, kind="stable")[: cap - N]
             keep = np.ones(w.shape[0], dtype=bool)
             keep[r] = False
             w, E = w[keep], E[keep]
@@ -224,7 +224,7 @@ def train_gng(
                 nx += 1
                 w = w / np.maximum(w.sum(axis=1, keepdims=True), _EPS)
                 d = np.linalg.norm(w - x[None, :], axis=1)
-                order = np.argsort(d)
+                order = np.argsort(d, kind="stable")
                 s1, s2 = int(order[0]), int(order[1]) if w.shape[0] > 1 else (int(order[0]),) * 2
 
                 t[s1, :] += 1.0
@@ -274,7 +274,7 @@ def update_archive(pop: Population, archive: Population, max_size: int) -> Popul
     merged = Population.merge(archive, pop) if len(archive) else pop
     objs = np.asarray(merged.get("F"), dtype=float)
     _, ia = np.unique(objs, axis=0, return_index=True)
-    merged = merged[np.sort(ia)]
+    merged = merged[ia]                            # unique(...,'rows'): sorted row order
     objs = np.asarray(merged.get("F"), dtype=float)
     fn, _ = NDSort(objs, 1)
     merged = merged[np.asarray(fn).reshape(-1) == 1]
@@ -387,7 +387,6 @@ class RVEAiGNG(Algorithm):
         whole = Population.merge(pop, self.ext_archive)
         whole_obj = np.asarray(whole.get("F"), dtype=float)
         _, ia = np.unique(whole_obj, axis=0, return_index=True)
-        ia = np.sort(ia)
         whole = whole[ia]
         whole_obj = whole_obj[ia] - self.z_min[None, :]
 
@@ -434,13 +433,18 @@ class RVEAiGNG(Algorithm):
         angle = np.arccos(_cosine_matrix(P, V))
         associate = np.argmin(angle, axis=1)
 
+        G = whole.get("G")
+        cv = np.zeros(len(whole)) if G is None or np.size(G) == 0 else \
+            np.sum(np.maximum(0.0, np.asarray(G, dtype=float).reshape(len(whole), -1)), axis=1)
         next_idx = []
         for i in np.unique(associate):
-            current = np.where(associate == i)[0]
-            apd = (
-                1.0 + M * theta * angle[current, i] / gamma[i]
-            ) * np.linalg.norm(P[current], axis=1)
-            next_idx.append(int(current[np.argmin(apd)]))
+            cur1 = np.where((associate == i) & (cv == 0))[0]
+            cur2 = np.where((associate == i) & (cv != 0))[0]
+            if cur1.size:
+                apd = (1.0 + M * theta * angle[cur1, i] / gamma[i]) * np.linalg.norm(P[cur1], axis=1)
+                next_idx.append(int(cur1[np.argmin(apd)]))
+            elif cur2.size:
+                next_idx.append(int(cur2[np.argmin(cv[cur2])]))
 
         selected = whole[np.asarray(sorted(set(next_idx)), dtype=int)]
 

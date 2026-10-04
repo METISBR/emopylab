@@ -51,13 +51,12 @@ class MOEAD(Algorithm):
     def _setup(self, problem: Any, **kwargs: Any) -> None:
         if self.ref_dirs is None:
             n_obj = getattr(problem, "n_obj", 3)
-            self.ref_dirs = get_reference_directions("das-dennis", n_obj=n_obj, n_partitions=12)
+            self.ref_dirs = get_reference_directions("mud", n_obj=n_obj, n_points=self.pop_size)
         else:
             self.ref_dirs = np.asarray(self.ref_dirs, dtype=float)
+            self.pop_size = len(self.ref_dirs)
 
         self.W = np.asarray(self.ref_dirs, dtype=float)
-        self.pop_size = len(self.W)
-
         # Distance between weight vectors to form neighborhood
         dist_W = np.linalg.norm(self.W[:, None, :] - self.W[None, :, :], axis=2)
         k_neighbors = min(self.n_neighbors, self.pop_size)

@@ -2264,3 +2264,9 @@ class LLMFormulationService:
         out_path = out_dir / str(bundle.get("cpu_file", f"{class_name}.py"))
         out_path.write_text(str(code), encoding="utf-8")
         return out_path
+
+# Module-level aliases so callers can do:
+#   from core.llm.formulation import DEFAULT_LOCAL_MODEL, LOCAL_PROVIDER
+DEFAULT_LOCAL_MODEL: str = LLMFormulationService.DEFAULT_LOCAL_MODEL
+LOCAL_PROVIDER: str = LLMFormulationService.LOCAL_PROVIDER
+DEFAULT_PROVIDER: str = LLMFormulationService.DEFAULT_PROVIDER

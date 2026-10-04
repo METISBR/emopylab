@@ -98,7 +98,7 @@ def _update_archive(archive: Population, n_archive: int, rng: np.random.Generato
     while len(archive) > n_archive:
         f_arc = np.asarray(archive.get("F"), dtype=float)
         crowd = np.asarray(CrowdingDistance(f_arc), dtype=float).reshape(-1)
-        order = np.argsort(crowd)  # smaller crowding removed first
+        order = np.argsort(crowd, kind="stable")  # smaller crowding removed first
         k = max(1, int(math.ceil(order.size * 0.1)))
         drop_local = int(order[int(rng.integers(0, k))])
         keep_mask = np.ones(len(archive), dtype=bool)
@@ -108,7 +108,7 @@ def _update_archive(archive: Population, n_archive: int, rng: np.random.Generato
     if len(archive) > 0:
         f_arc = np.asarray(archive.get("F"), dtype=float)
         crowd = np.asarray(CrowdingDistance(f_arc), dtype=float).reshape(-1)
-        rank = np.argsort(-crowd)  # descending crowding
+        rank = np.argsort(-crowd, kind="stable")  # descending crowding
         archive = archive[rank]
 
     return archive
@@ -119,6 +119,9 @@ def _update_pbest(pbest: Population, pop: Population) -> Population:
     pbest_f = np.asarray(out.get("F"), dtype=float)
     pop_f = np.asarray(pop.get("F"), dtype=float)
 
+    # The evaluation budget may truncate the last swarm batch: compare the first m particles only.
+    m = min(len(pbest_f), len(pop_f))
+    pbest_f, pop_f = pbest_f[:m], pop_f[:m]
     temp = pbest_f - pop_f
     dominate = np.any(temp < 0.0, axis=1).astype(int) - np.any(temp > 0.0, axis=1).astype(int)
     replace = np.where(dominate == -1)[0]

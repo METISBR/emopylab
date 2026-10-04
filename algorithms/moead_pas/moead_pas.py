@@ -8,114 +8,91 @@ R. Wang, Q. Zhang, and T. Zhang. IEEE TEC, 2016, 20(6): 821-837.
 from __future__ import annotations
 
 import numpy as np
-from core.algorithm import Algorithm
 
-from operators.utility_functions.NDSort import NDSort
+from algorithms.community_utils.base import LoopAlgorithm, cv, de, decs, ga_half, nd_sort, objs, roulette
 from algorithms.community_utils.moead_family import (
-    Task,
-    choose_parent_pool,
-    de_offspring,
-    ensure_population,
-    fe_ratio,
-    ind_F,
+    choose_dra_indices,
     neighbors,
-    pop_F,
-    rng_from_algo,
-    sample_initial,
-    set_optimum_from_pop,
+    normalize_du,
+    pbi_values,
+    set_weight_dcwv,
+    tchebycheff_values,
+    update_pi_dra,
+    update_weight_dcwv,
     weight_vectors,
 )
-
 
 ALGORITHM_FLAGS = {"MOEADPaS": {"multi", "many", "real", "integer"}}
 
 
-class MOEADPaS(Algorithm):
-    def __init__(self, pop_size=100, delta=0.9, sampling=None, **kwargs):
-        super().__init__(**kwargs)
-        self.pop_size = int(pop_size)
-        self.delta = float(delta)
-        self.sampling = sampling
+class MOEADPaS(LoopAlgorithm):
+    """MOEA/D-DE with Pareto-adaptive scalarising: each subproblem uses an L_p scalarisation (p in 1..10 or inf)
+    re-selected with probability 1-FE/maxFE as the one whose best solution lies closest to its weight vector."""
 
-    def _initialize_infill(self):
+    PSET = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, np.inf])
+
+    def __init__(self, pop_size=100, delta=0.9, sampling=None, **kwargs):
+        super().__init__(pop_size=pop_size, sampling=sampling, **kwargs)
+        self.delta = float(delta)
+
+    def initial_size(self):
         self.W, n = weight_vectors(self.pop_size, self.problem.n_obj)
         self.pop_size = n
-        self.T = int(np.ceil(self.pop_size / 10))
+        self.T = int(np.ceil(n / 10))
         self.B = neighbors(self.W, self.T)
-        return sample_initial(self.problem, self.pop_size, self.sampling, rng_from_algo(self))
+        return n
 
-    def _initialize_advance(self, infills=None, **kwargs):
-        self.pop = infills
-        self.p = np.ones(self.pop_size, dtype=float)
-        F = pop_F(self.pop)
-        self.z = np.min(F, axis=0)
-        front = np.asarray(NDSort(F, 1)[0], dtype=float)
-        nd = np.where(front == 1)[0]
-        self.znad = np.max(F[nd], axis=0) if nd.size else np.max(F, axis=0)
+    def _znad(self, F):
+        return F[nd_sort(F, None, 1)[0] == 1].max(axis=0)
 
-    def _infill(self):
-        rng = rng_from_algo(self)
-        self._tasks: list[Task] = []
-        offs = []
-        for i in range(self.pop_size):
-            P = choose_parent_pool(i, self.B, self.pop_size, rng, self.delta)
-            off = de_offspring(self.problem, self.pop, i, P, rng)
-            self._tasks.append(Task(i=i, parents_pool=np.asarray(P, dtype=int)))
-            offs.append(off)
-        return ensure_population(offs)
+    def start(self):
+        F = objs(self.pop)
+        self.pv = np.ones(self.pop_size)
+        self.z = F.min(axis=0)
+        self.znad = self._znad(F)
 
-    def _pas_vals(self, F: np.ndarray, idx: np.ndarray) -> np.ndarray:
-        F = np.asarray(F, dtype=float)
-        if F.ndim == 1:
-            F = F[None, :]
-        den = np.maximum(self.znad - self.z, 1e-32)
-        Y = np.abs((F - self.z) / den) / np.maximum(self.W[idx], 1e-12)
-        pvals = self.p[idx]
-        out = np.zeros(Y.shape[0], dtype=float)
-        inf_mask = np.isinf(pvals)
-        if np.any(inf_mask):
-            out[inf_mask] = np.max(Y[inf_mask], axis=1)
-        if np.any(~inf_mask):
-            pe = pvals[~inf_mask]
-            out[~inf_mask] = np.sum(Y[~inf_mask] ** pe[:, None], axis=1) ** (1.0 / pe)
-        return out
+    def _g(self, F, P):
+        with np.errstate(all="ignore"):
+            Y = (F - self.z) / (self.znad - self.z) / self.W[P]
+            pp = self.pv[P]
+            g = np.zeros(len(P))
+            inf = np.isinf(pp)
+            g[inf] = Y[inf].max(axis=1)
+            g[~inf] = np.sum(Y[~inf] ** pp[~inf, None], axis=1) ** (1.0 / pp[~inf])
+        return g
 
-    def _advance(self, infills=None, **kwargs):
-        for off, task in zip(infills, self._tasks):
-            off_f = ind_F(off)
-            P = task.parents_pool
-            g_old = self._pas_vals(pop_F(self.pop[P]), P)
-            g_new = self._pas_vals(np.repeat(off_f[None, :], len(P), axis=0), P)
-            repl = np.where(g_old > g_new)[0][: max(1, int(np.ceil(0.1 * len(P))))]
-            if repl.size:
-                self.pop[P[repl]] = off
+    def _off_de(self, i, P):
+        X = decs(self.pop)
+        return self.evaluate(de(self.problem, X[[i]], X[[P[0]]], X[[P[1]]], rng=self.rng))
 
-        F = pop_F(self.pop)
-        self.z = np.minimum(self.z, np.min(F, axis=0))
-        front = np.asarray(NDSort(F, 1)[0], dtype=float)
-        nd = np.where(front == 1)[0]
-        self.znad = np.max(F[nd], axis=0) if nd.size else np.max(F, axis=0)
+    def _off_ga(self, a, b):
+        return self.evaluate(ga_half(self.problem, decs(self.pop[[int(a), int(b)]]), rng=self.rng))
 
-        Pset = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, np.inf], dtype=float)
-        nObj = (F - self.z) / np.maximum(self.znad - self.z, 1e-32)
-        ratio = fe_ratio(self)
-        rng = rng_from_algo(self)
-        for i in np.where(rng.random(self.pop_size) >= ratio)[0]:
-            Y = nObj / np.maximum(self.W[i], 1e-12)
-            g = np.zeros((self.pop_size, len(Pset)), dtype=float)
-            for j, pv in enumerate(Pset):
-                if np.isfinite(pv):
-                    g[:, j] = np.sum(Y ** pv, axis=1) ** (1.0 / pv)
-                else:
-                    g[:, j] = np.max(Y, axis=1)
-            ZK = np.argmin(g, axis=0)
-            cand = nObj[ZK]
-            norms = np.maximum(np.linalg.norm(cand, axis=1), 1e-32)
-            wnorm = max(np.linalg.norm(self.W[i]), 1e-32)
-            cos = np.sum(cand * self.W[i], axis=1) / (norms * wnorm)
-            zidx = int(np.argmin(np.sqrt(np.maximum(0.0, 1.0 - cos * cos)) * norms))
-            self.p[i] = Pset[zidx]
+    def _replace(self, idx, off):
+        for j in idx:
+            self.pop[int(j)] = off[0]
 
-    def _set_optimum(self):
-        set_optimum_from_pop(self)
-
+    def step(self):
+        rng, N, M = self.rng, self.pop_size, self.problem.n_obj
+        for i in range(N):
+            P = self.B[i, rng.permutation(self.T)] if rng.random() < self.delta else rng.permutation(N)
+            off = self._off_de(i, P)
+            f = objs(off)[0]
+            g_old = self._g(objs(self.pop[P]), P)
+            g_new = self._g(np.tile(f, (len(P), 1)), P)
+            self._replace(P[np.where(g_old > g_new)[0][: int(np.ceil(0.1 * self.T))]], off)
+        F = objs(self.pop)
+        self.z = np.minimum(self.z, F.min(axis=0))
+        self.znad = self._znad(F)
+        with np.errstate(all="ignore"):
+            nObj = (F - self.z) / (self.znad - self.z)
+            for i in np.where(rng.random(N) >= self.FE / self.max_FE)[0]:
+                Y = nObj / self.W[i]
+                g = np.column_stack([np.sum(Y ** q, axis=1) ** (1.0 / q) if np.isfinite(q) else Y.max(axis=1)
+                                     for q in self.PSET])
+                ZK = np.argmin(np.where(np.isnan(g), np.inf, g), axis=0)
+                C = nObj[ZK]
+                nc = np.sqrt(np.sum(C ** 2, axis=1))
+                cos = C @ self.W[i] / (nc * np.linalg.norm(self.W[i]))
+                d = np.sqrt(1 - cos ** 2) * nc
+                self.pv[i] = self.PSET[0 if np.all(np.isnan(d)) else int(np.nanargmin(d))]

@@ -205,15 +205,17 @@ class MOCMA(Algorithm):
             return
 
         n = len(self.pop)
-        merged = Population.merge(self.pop, infills)
+        # The evaluation budget may truncate the last batch: only the first m parents got a child.
+        m = min(len(infills), n)
+        merged = Population.merge(self.pop, infills[:m] if m < len(infills) else infills)
 
         pop_obj = np.asarray(merged.get("F"), dtype=float)
         pop_dec = np.asarray(merged.get("X"), dtype=float)
         parent_x = np.asarray([node.x for node in self.nodes], dtype=float)
         child_raw = (
-            np.asarray(self._child_raw, dtype=float)
-            if self._child_raw is not None and len(self._child_raw) == n
-            else np.asarray(infills.get("X"), dtype=float)
+            np.asarray(self._child_raw, dtype=float)[:m]
+            if self._child_raw is not None and len(self._child_raw) >= m
+            else np.asarray(infills.get("X"), dtype=float)[:m]
         )
 
         # MATLAB MO-CMA applies a small penalty for repaired/adjusted offspring.
@@ -231,6 +233,9 @@ class MOCMA(Algorithm):
         parent_nodes: list[_MOCMANode] = []
         child_nodes: list[_MOCMANode] = []
         for k, parent in enumerate(self.nodes):
+            if k >= m:
+                parent_nodes.append(parent)
+                continue
             child = copy.deepcopy(parent)
             child.x = np.asarray(child_raw[k], dtype=float).copy()
 

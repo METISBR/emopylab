@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "emopylab"
-version = "1.0.6"
+version = "1.0.7"
 description = "A tensor-native, hardware-accelerated laboratory for multi- and many-objective evolutionary optimization, reproducible benchmarking, and post-hoc MCDM."
 readme = "README.md"
 authors = [
@@ -64,6 +64,13 @@ cuda = [
     "torch>=2.0,<3",
     "cupy-cuda12x>=13,<14",
 ]
+# Laya 322M System-1 decision model used by LARC-NSGA3 Tier 2 (tested with laya 0.3.21).
+# On HPC compute nodes without internet, pre-stage the HF cache and set HF_HUB_OFFLINE=1 and
+# LAYA_SKILLS_DIR (see specs/001-larc-revision-lncc/plan.md).
+laya = [
+    "laya>=0.3.21,<0.4",
+]
+# pexpect is only needed by legacy password-based SSH helpers; prefer SSH keys (no extra needed).
 hpc = [
     "pexpect>=4.9.0",
 ]
@@ -97,6 +104,10 @@ all = [
 emopylab-gui = "EmoPyLab:main"
 emopylabgui = "EmoPyLab:main"
 emopylab = "core.cli:main"
+
+[tool.setuptools]
+py-modules = ["optimize", "EmoPyLab", "version", "styles"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["core*", "algorithms*", "metrics*", "operators*", "problems*", "util*"]

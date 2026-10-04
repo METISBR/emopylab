@@ -59,6 +59,7 @@ from operators.sampling.lhs import LatinHypercubeSampling
 from operators.survival.rank_and_crowding.metrics import calc_crowding_distance
 from util.nds.non_dominated_sorting import NonDominatedSorting
 from util.ref_dirs import get_reference_directions
+from operators.utility_functions.UniformPoint import UniformPoint
 
 from core.llm import (
     DEFAULT_BASE_URL as _DEFAULT_LLM_BASE_URL,
@@ -104,7 +105,7 @@ _LLM_PROMPT_TEMPLATE = """Given multi-objective optimization state:
 - Archive front size: {front_size}/{ref_count}
 - Stagnation count: {stagnation}
 - Operator reward history: {bandit_means}
-
+- Regime guidance: {guidance}
 You are an adaptive meta-heuristic semantic designer. Output ONLY valid JSON matching this exact structure:
 {{"operator_choice": "llm_de", "operator_params": {{"F": 0.8, "CR": 0.9, "eta_c": 20.0, "eta_m": 20.0, "q": 1.0, "xi": 0.85}}, "apd_alpha": 2.0, "apd_profile": "convex_barrier", "topology_estimate": "multimodal"}}
 
@@ -136,6 +137,7 @@ def _call_llm(stats: Dict[str, Any],
             ref_count=stats.get("ref_count", 0),
             stagnation=stats.get("stagnation", 0),
             bandit_means=json.dumps(stats.get("bandit_means", {})),
+            guidance=stats.get("guidance", "Balance convergence and diversity."),
         )
         proposal = client.json_call(
             prompt,
@@ -297,11 +299,7 @@ class MaACO(Algorithm):
     def _setup(self, problem, **kwargs):
         n_obj = int(problem.n_obj)
         if self.ref_dirs is None or self.ref_dirs.shape[1] != n_obj:
-            parts = self._ref_partitions if self._ref_partitions is not None else _default_partitions_for_dim(n_obj)
-            self.ref_dirs = np.asarray(
-                get_reference_directions("das-dennis", n_obj, n_partitions=parts),
-                dtype=float,
-            )
+            self.ref_dirs = self._default_ref_dirs(n_obj)
         if self.pop_size < self.ref_dirs.shape[0]:
             self.pop_size = int(self.ref_dirs.shape[0])
     def _initialize_infill(self) -> Population:
@@ -361,8 +359,22 @@ class MaACO(Algorithm):
         if F.size == 0:
             return
 
-        # 1. APD Environmental Selection
-        survivors = self._apd_selection(F)
+        # 1. Environmental Selection
+        if getattr(self, "problem", None) is not None and int(self.problem.n_obj) <= 2:
+            fronts = NonDominatedSorting().do(F)
+            survivors = []
+            for front in fronts:
+                if len(survivors) + len(front) <= self.pop_size:
+                    survivors.extend(front)
+                else:
+                    rem = self.pop_size - len(survivors)
+                    sub_F = F[front]
+                    cd = calc_crowding_distance(sub_F)
+                    best_indices = np.argsort(-cd)[:rem]
+                    survivors.extend([front[i] for i in best_indices])
+                    break
+        else:
+            survivors = self._apd_selection(F)
         self.pop = self.pop[survivors]
         F_surv = np.asarray(self.pop.get("F"), dtype=float)
 
@@ -373,7 +385,11 @@ class MaACO(Algorithm):
         if getattr(self, "reward_mode", "dense") == "dense":
             curr_conv = float(np.mean(np.min(F_surv, axis=0))) if F_surv.size > 0 else 0.0
             conv_gain = max(0.0, self._last_conv - curr_conv)
-            reward = reward_hv + 0.3 * conv_gain
+            spread_bonus = 0.0
+            if F_surv.size > 0 and getattr(self, "problem", None) is not None and int(self.problem.n_obj) <= 2:
+                ext_dist = float(np.linalg.norm(F_surv.max(axis=0) - F_surv.min(axis=0)))
+                spread_bonus = 0.1 * ext_dist
+            reward = reward_hv + 0.3 * conv_gain + spread_bonus
             self._last_conv = curr_conv
         else:
             reward = reward_hv
@@ -471,11 +487,12 @@ class MaACO(Algorithm):
             if not isinstance(params, Mapping):
                 raise ValueError("operator_params is not a mapping")
             normalized_params: Dict[str, float] = {}
+            m_obj = int(self.problem.n_obj) if getattr(self, "problem", None) else 3
             ranges = {
-                "eta_c": (2.0, 50.0),
+                "eta_c": (2.0, 100.0 if m_obj <= 2 else 50.0),
                 "F": (0.1, 1.2),
                 "CR": (0.05, 1.0),
-                "eta_m": (5.0, 60.0),
+                "eta_m": (5.0, 100.0 if m_obj <= 2 else 60.0),
                 "q": (0.05, 2.0),
                 "xi": (0.1, 1.0),
             }
@@ -526,9 +543,13 @@ class MaACO(Algorithm):
 
         F_cur = np.asarray(self.pop.get("F"), dtype=float)
         alloc_state = self.bandit.get_state()
+        n_obj_int = int(self.problem.n_obj)
+        guidance = "Many-Objective (M>=4): balance convergence and diversity across non-convex manifolds."
+        if n_obj_int <= 2:
+            guidance = "Bi-objective continuous (M=2, ZDT regime): prioritize boundary exploration, high eta_c (30-60) and convex_barrier. Avoid aggressive acor_mixture."
         stats = {
             "generation": self._t,
-            "n_obj": int(self.problem.n_obj),
+            "n_obj": n_obj_int,
             "pop_size": int(len(self.pop)),
             "front_size": int(F_cur.shape[0]),
             "ref_count": int(self.ref_dirs.shape[0]),
@@ -537,6 +558,7 @@ class MaACO(Algorithm):
             "last_operator": self._last_operator_used,
             "bandit_means": alloc_state.get("recent_mean_rewards", {}),
             "bandit_counts": alloc_state.get("counts", {}),
+            "guidance": guidance,
         }
         before_preference = self._llm_preference
         before_params = dict(self._operator_params)
@@ -622,14 +644,36 @@ class MaACO(Algorithm):
     # APD Environmental Selection (RVEA-style)
     # ------------------------------------------------------------------
 
+    def _default_ref_dirs(self, m: int) -> np.ndarray:
+        """Reference vectors sized by ``pop_size`` (uniform points); Das-Dennis only when ``ref_partitions`` is given
+        explicitly. (Previously M >= 3 always used fixed partitions and raised ``pop_size`` to their count, e.g. 91 at
+        M = 3 for a requested population of 30.)"""
+        if m > 2 and self._ref_partitions is not None:
+            return np.asarray(get_reference_directions("das-dennis", m, n_partitions=self._ref_partitions), dtype=float)
+        W, n_eff = UniformPoint(self.pop_size, m)
+        self.pop_size = int(n_eff)
+        return np.asarray(W, dtype=float)
+
+    def _progress(self) -> float:
+        """Fraction of the run completed (budget consumed), as required by the angle-penalised distance t / t_max.
+
+        ``n_gen`` is the *current* generation counter, so the former ``self._t / n_gen`` was ~1 from the start and the
+        angle penalty acted at full strength from the first generation."""
+        term = getattr(self, "termination", None)
+        if term is not None:
+            try:
+                term.update(self)
+            except Exception:  # noqa: BLE001
+                pass
+            perc = getattr(term, "perc", None)
+            if perc is not None and np.isfinite(perc):
+                return float(perc)
+        return self._t / 1000.0
+
     def _apd_selection(self, F: np.ndarray) -> np.ndarray:
         n, m = F.shape
         if self.ref_dirs is None or self.ref_dirs.shape[1] != m:
-            parts = self._ref_partitions if self._ref_partitions is not None else _default_partitions_for_dim(m)
-            self.ref_dirs = np.asarray(
-                get_reference_directions("das-dennis", m, n_partitions=parts),
-                dtype=float,
-            )
+            self.ref_dirs = self._default_ref_dirs(m)
         target = min(self.pop_size, self.ref_dirs.shape[0])
         if n <= target:
             return np.arange(n)
@@ -669,8 +713,7 @@ class MaACO(Algorithm):
         else:
             angle_ratio = theta
 
-        t_max = max(1, int(getattr(self, "n_gen", 1000) or 1000))
-        t_hat = min(1.0, max(0.05, self._t / t_max))
+        t_hat = min(1.0, max(0.05, self._progress()))
         if self.apd_profile == "sigmoidal_barrier":
             penalty = 1.0 + float(m) * (1.0 / (1.0 + np.exp(-10.0 * (t_hat - 0.5)))) * angle_ratio
         elif self.apd_profile == "exponential_barrier":
@@ -711,7 +754,7 @@ class MaACO(Algorithm):
     def _adapt_reference_directions(self,
                                     F: np.ndarray,
                                     ref_dirs: np.ndarray) -> np.ndarray:
-        if F.shape[0] < 2:
+        if F.shape[0] < 2 or F.shape[1] <= 2:
             return ref_dirs
 
         Fn = F - F.min(axis=0)

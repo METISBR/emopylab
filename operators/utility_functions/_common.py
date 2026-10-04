@@ -106,6 +106,17 @@ def _problem_upper(problem: Any, D: int | None = None) -> np.ndarray:
     return np.ones(D, dtype=float)
 
 
+def _binary_if_unit_integer(problem: Any, enc: np.ndarray, D: int) -> np.ndarray:
+    """Integer variables bounded by [0, 1] are binary variables (the encoding the reference platform gives them)."""
+    try:
+        lo, up = _problem_lower(problem, D), _problem_upper(problem, D)
+        enc = enc.copy()
+        enc[(enc == 2) & (lo == 0) & (up == 1)] = 4
+    except Exception:
+        pass
+    return enc
+
+
 def _problem_encoding(problem: Any, D: int) -> np.ndarray:
     enc = getattr(problem, 'encoding', None)
     if enc is None:
@@ -120,11 +131,11 @@ def _problem_encoding(problem: Any, D: int) -> np.ndarray:
                     out[i] = 2
                 else:
                     out[i] = 1
-            return out
+            return _binary_if_unit_integer(problem, out, D)
         if vtype in (bool, np.bool_):
             return np.full(D, 4, dtype=int)
         if vtype in (int, np.int32, np.int64):
-            return np.full(D, 2, dtype=int)
+            return _binary_if_unit_integer(problem, np.full(D, 2, dtype=int), D)
         return np.full(D, 1, dtype=int)
     arr = np.asarray(enc, dtype=int).reshape(-1)
     if arr.size == 1:
@@ -140,7 +151,9 @@ def _problem_evaluation(problem: Any, *args) -> Any:
     if len(args) < 1:
         raise ValueError("At least decision variables X must be provided for problem evaluation.")
     X = np.asarray(args[0], dtype=float)
-    out = problem.evaluate(X, return_as_dictionary=True)
+    # Same value set as core.evaluator.Evaluator so the evaluator recognises these
+    # individuals as already evaluated and never charges them twice.
+    out = problem.evaluate(X, return_values_of=["F", "G", "H"], return_as_dictionary=True)
     pop = Population.new("X", X)
     if isinstance(out, dict):
         for k, v in out.items():
@@ -279,11 +292,11 @@ def tournament_selection(K, N, *fitness_args, rng=None):
             raise ValueError('All fitness vectors must have the same length.')
     fit = np.hstack(cols)
 
-    uniq, inv = np.unique(fit, axis=0, return_inverse=True)
-    order = np.lexsort(tuple(uniq[:, j] for j in range(uniq.shape[1]-1, -1, -1)))
-    rank = np.empty_like(order)
-    rank[order] = np.arange(order.size)
-    rank_by_ind = rank[inv]
+    # rank = position in the (stable) lexicographic sort of the fitness rows, so equal fitness is resolved in favour
+    # of the lower index exactly like the reference platform's ``sortrows``-based tournament
+    order = np.lexsort(tuple(fit[:, j] for j in range(fit.shape[1] - 1, -1, -1)))
+    rank_by_ind = np.empty_like(order)
+    rank_by_ind[order] = np.arange(order.size)
 
     parents = rng.integers(0, n_pop, size=(K, N))
     local_ranks = rank_by_ind[parents]

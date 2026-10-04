@@ -45,6 +45,40 @@ class _BaseSMD(Problem):
         n_ieq = self._n_ieq_constr()
         super().__init__(n_var=d, n_obj=2, n_ieq_constr=n_ieq, xl=xl, xu=xu, vtype=float, **kwargs)
 
+    # ---- bilevel interface -------------------------------------------------------------------------
+    @property
+    def DU(self) -> int:
+        return self.du
+
+    @property
+    def DL(self) -> int:
+        return self.dl
+
+    @property
+    def C(self) -> int:
+        """Number of upper-level constraints (the remaining constraints belong to the lower level)."""
+        idx = self._IDX
+        return {9: 1, 10: self.du, 11: self.r, 12: self.p + 2 * self.r}.get(idx, 0)
+
+    @property
+    def maxFElower(self) -> int:
+        return self.max_felower
+
+    def evaluation_lower(self, X):
+        """Evaluate only the lower level: the upper-level objective and constraints are NaN and the evaluations are
+        not charged to the upper-level budget (each lower-level search has its own ``maxFElower``)."""
+        from core.population import Population
+        X = np.clip(_as_2d(X), self.xl, self.xu)
+        F = self._calc_f(X).astype(float)
+        F[:, 0] = np.nan
+        G = self._calc_g(X)
+        kv = ["F", F]
+        if G is not None and G.shape[1] > 0:
+            G = np.array(G, dtype=float)
+            G[:, : self.C] = np.nan
+            kv += ["G", G]
+        return Population.new("X", X, *kv)
+
     def _n_ieq_constr(self) -> int:
         if self._IDX in {1, 2, 3, 4, 5, 6, 7, 8}:
             return 0

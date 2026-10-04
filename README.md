@@ -33,6 +33,15 @@ If you utilize **EmoPyLab** in your scientific research, algorithms, or benchmar
 ---
 
 ## Changelog & Release Notes
+
+### [v1.0.7] — 2026-10-03
+* **Algorithmic Stability & Integration Fix (Benchmark Readiness)**: Comprehensive architectural robustness applied to specialized algorithms to guarantee seamless execution on continuous single-level benchmarks (e.g., `ZDT1`, `DTLZ1`) during large-scale stress-testing:
+  * **Bilevel Fallbacks (`BLEAQII`, `BLSAEA`, `NBLEA`)**: Injected `getattr` fallbacks for bilevel properties (`DU`, `DL`, `C`, `maxFElower`), degrading gracefully to single-level execution without crashing.
+  * **Multitask Fallbacks (`EMOSKT`, `MOMFEA`, `MOMFEAII`, `MOMFEASADE`, `MTDEMKTA`, `MTEADDN`)**: Added safe defaults for task metadata (`sub_m`, `sub_d`), dynamically suppressing task-ID appending and knowledge transfer when $T=1$ (mono-task problems), resolving shape/broadcast errors.
+  * **Robust Optimization Fallbacks (`MOEARE`, `LRMOEA`, `NSGAIIDTI`)**: Implemented direct evaluation pathways bypassing `perturb()` when robust operators are applied to deterministic single-level problems.
+  * **Variable Classification Fallbacks (`CNSDEDVC`)**: Defined default perturbation step `delta = 0.1` to support sensitivity grouping on standard functions.
+  * **Neural & Graph Algorithms (`NNDREAMO`)**: Replaced hard-stop `TypeError` for non-sparse instances with a dynamically scaled random matrix, enabling execution on arbitrary continuous domains.
+
 ### [v1.0.6] — 2026-09-21
 * **Unified WebGL Visualization (Plotly Engine)**: Replaced legacy plotting (`QChartView` and `Q3DScatter`) with a unified hardware-accelerated Plotly WebGL architecture (`PlotlyWidget`). Seamlessly renders 2D Pareto fronts, 3D interactive manifolds ($M=3$), and Many-Objective Parallel Coordinates ($M > 3$) with 360° orbital rotation, pan, and focal zoom across macOS (Metal), Windows, and Linux.
 * **Direct MCDM Click-to-Select**: Integrated bidirectional `QWebChannel` communication allowing users to click directly on Pareto front solutions in the WebGL plot to inspect and trigger MCDM decision support.
@@ -330,7 +339,7 @@ emopylab list --category taxonomy
 ```
 
 ### Architectural Tiers:
-* **Tier 1 (Native Full Implementations):** Authorial architectures with native tensor operators (e.g., LARC-NSGA-III, GCS-MaOEA, GASDE, SAGE-MOEA, SSW-DNV, MAACO).
+* **Tier 1 (Native Full Implementations):** Authorial architectures with native tensor operators (e.g., LARC-NSGA-III, GCS-MaOEA, GASDE, SAGE-MOEA, SSW, MAACO).
 * **Tier 2 (Canonical Literature Solvers):** Classical EMO/MaOP algorithms (NSGA-II, NSGA-III, MOEA/D, RVEA, SPEA2, BiGE, C-MOEA/D, Two-Arch2).
 * **Tier 3 (Domain-Specific & Constrained Specialists):** Benchmark-specific heuristics and surrogate-assisted optimizers.
 

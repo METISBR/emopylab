@@ -49,14 +49,10 @@ def _as_2d(x, dtype=float):
 
 
 def _module_dir() -> Path:
-    root = Path(__file__).resolve().parents[2] / "problems"
-    for candidate in root.iterdir():
-        if not candidate.is_dir():
-            continue
-        target = candidate / "Multi-objective optimization" / "Real-world MOPs"
-        if target.is_dir():
-            return target
-    raise FileNotFoundError("MATLAB source folder for Real-world MOPs not found.")
+    """Local data folder (benchmark datasets shipped with the package + deterministic caches)."""
+    d = Path(__file__).resolve().parent / "_data" / "realworld"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def _rng():
@@ -148,9 +144,19 @@ def _load_or_create_monrp(n: int, m_customers: int) -> tuple[np.ndarray, np.ndar
     return cost, value
 
 
+def _as_cell_array(mats) -> np.ndarray:
+    """1 x K cell array (object array) holding matrices of identical shape without NumPy stacking them."""
+    cell = np.empty((1, len(mats)), dtype=object)
+    for i, m in enumerate(mats):
+        cell[0, i] = np.asarray(m, dtype=float)
+    return cell
+
+
 def _matlab_cell_to_list(cell_arr) -> list[np.ndarray]:
     arr = np.asarray(cell_arr)
     if arr.dtype != object:
+        if arr.ndim == 3:
+            return [np.asarray(arr[i], dtype=float) for i in range(arr.shape[0])]
         return [np.asarray(arr, dtype=float)]
     out: list[np.ndarray] = []
     for item in arr.reshape(-1):
@@ -173,7 +179,7 @@ def _load_or_create_motsp(m: int, d: int, c: float) -> list[np.ndarray]:
     for i in range(m):
         a = c_mats[i]
         c_mats[i] = np.tril(a, -1) + np.triu(a.T, 1)
-    savemat(path, {"C": np.array(c_mats, dtype=object)[None, :]})
+    savemat(path, {"C": _as_cell_array(c_mats)})
     return [np.asarray(v, dtype=float) for v in c_mats]
 
 
@@ -217,7 +223,7 @@ def _load_or_create_mqap(m: int, d: int, c: float) -> tuple[np.ndarray, list[np.
                 rs[i] = 1.0 - rs[0]
 
     b = [100.0 * r * (~np.eye(d, dtype=bool)) for r in rs]
-    savemat(path, {"a": a, "b": np.array(b, dtype=object)[None, :]})
+    savemat(path, {"a": a, "b": _as_cell_array(b)})
     return a, [np.asarray(v, dtype=float) for v in b]
 
 

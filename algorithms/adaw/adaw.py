@@ -17,23 +17,16 @@ Backend: emopylab array facade; MLX selected automatically by
 
 from __future__ import annotations
 
-from typing import Optional
-
 import numpy as np
 from core.population import Population
 from util.optimum import filter_optimum
 
-from core.algorithm import Algorithm
+from algorithms.community_utils.base import LoopAlgorithm
 from operators.utility_functions.NDSort import NDSort
 from operators.utility_functions.OperatorGAhalf import OperatorGAhalf
 from operators.utility_functions.UniformPoint import UniformPoint
 from util.array_backend import backend_cdist
 
-from algorithms.community_utils.moead_family import (
-    current_fe,
-    max_fe,
-    sample_initial,
-)
 
 ALGORITHM_FLAGS = {"AdaW": {"multi", "many"}}
 
@@ -74,131 +67,56 @@ def archive_update(archive: Population, n_max: int) -> Population:
     return archive[keep]
 
 
-class AdaW(Algorithm):
-    """AdaW (Li & Yao, 2020) with periodic weight adaptation."""
+class AdaW(LoopAlgorithm):
+    """AdaW (Li & Yao, 2020): steady-state MOEA/D (one GAhalf offspring per weight, replacing the first improved
+    neighbour) with a niche-truncated archive of non-dominated solutions and periodic weight adaptation."""
 
-    def __init__(
-        self,
-        pop_size: int = 100,
-        adapt_weights: bool = True,
-        sampling=None,
-        seed: Optional[int] = None,
-        use_gpu: bool = False,
-        array_backend: str = "auto",
-        gpu_dtype: str = "float32",
-        **kwargs,
-    ):
-        super().__init__(
-            seed=seed, use_gpu=use_gpu, array_backend=array_backend,
-            gpu_dtype=gpu_dtype, **kwargs,
-        )
-        self.pop_size = int(max(pop_size, 3))
+    def __init__(self, pop_size: int = 100, adapt_weights: bool = True, sampling=None, **kwargs):
+        super().__init__(pop_size=pop_size, sampling=sampling, **kwargs)
         self.adapt_weights = bool(adapt_weights)
-        self.sampling = sampling
-
-        self.W: Optional[np.ndarray] = None
-        self.B: Optional[np.ndarray] = None
-        self.T: int = 0
-        self.Z: Optional[np.ndarray] = None
         self.ext_archive: Population = Population.empty()
-        self._tasks: list[np.ndarray] = []
 
-    def _setup(self, problem, **kwargs):
-        W, n_eff = UniformPoint(self.pop_size, int(problem.n_obj))
+    def initial_size(self) -> int:
+        W, n_eff = UniformPoint(self.pop_size, int(self.problem.n_obj))
         self.W = np.asarray(W, dtype=float)
         self.pop_size = int(max(1, n_eff))
         self.T = int(np.ceil(self.pop_size / 10))
         self._update_neighbors()
+        return self.pop_size
 
     def _update_neighbors(self):
         d = backend_cdist(self.W, self.W)
-        self.B = np.argsort(d, axis=1)[:, : self.T]
+        self.B = np.argsort(d, axis=1, kind="stable")[:, : self.T]
 
-    def _initialize_infill(self):
-        return sample_initial(self.problem, self.pop_size, self.sampling, self.random_state)
-
-    def _initialize_advance(self, infills=None, **kwargs):
-        self.pop = infills if infills is not None else Population.empty()
-        if len(self.pop) == 0:
-            self.opt = self.pop
-            return
+    def start(self):
         F = np.asarray(self.pop.get("F"), dtype=float)
         self.Z = F.min(axis=0)
         fn, _ = NDSort(F, 1)
         self.ext_archive = self.pop[np.asarray(fn).reshape(-1) == 1]
-        self._set_optimum()
 
-    def _infill(self):
-        if self.pop is None or len(self.pop) == 0:
-            return sample_initial(self.problem, self.pop_size, self.sampling, self.random_state)
-        rng = self.random_state
-        X = np.asarray(self.pop.get("X"), dtype=float)
-        n = len(self.pop)
-        self._tasks = []
-        p1 = np.empty(n, dtype=int)
-        p2 = np.empty(n, dtype=int)
-        for i in range(n):
-            if rng.random() < 0.9:
-                P = self.B[i][rng.permutation(self.B.shape[1])]
-            else:
-                P = rng.permutation(n)
-            p1[i], p2[i] = int(P[0]), int(P[1])
-            self._tasks.append(np.asarray(P, dtype=int))
-        # One vectorized SBX+PM call for all weights (OperatorGAhalf pairs the
-        # first half of the parent matrix with the second half), instead of one
-        # operator call per weight; parent choice is unchanged.
-        parents = np.vstack([X[p1], X[p2]])
-        off = OperatorGAhalf(self.problem, parents, rng=rng)
-        off = np.asarray(off, dtype=float)
-        if off.shape[0] != n:  # fallback: per-pair generation
-            offs = [
-                np.asarray(
-                    OperatorGAhalf(self.problem, X[[p1[i], p2[i]]], rng=rng),
-                    dtype=float,
-                ).reshape(1, -1)
-                for i in range(n)
-            ]
-            off = np.vstack(offs)
-        return Population.new("X", off)
-
-    def _advance(self, infills=None, **kwargs):
-        if infills is None or len(infills) == 0:
-            return
-        F_pop = np.asarray(self.pop.get("F"), dtype=float)
-        for off, P in zip(infills, self._tasks):
-            off_f = np.asarray(off.get("F"), dtype=float).reshape(-1)
-            self.Z = np.minimum(self.Z, off_f)
-            P = P[P < len(self.pop)]
+    def step(self):
+        rng, N = self.rng, self.pop_size
+        offs = []
+        for i in range(N):
+            P = self.B[i][rng.permutation(self.B.shape[1])] if rng.random() < 0.9 else rng.permutation(N)
+            X = np.asarray(self.pop.get("X"), dtype=float)
+            off = self.evaluate(np.asarray(OperatorGAhalf(self.problem, X[P[:2]], rng=rng), dtype=float))
+            offs.append(off)
+            f = np.asarray(off.get("F"), dtype=float)[0]
+            self.Z = np.minimum(self.Z, f)
+            F_pop = np.asarray(self.pop.get("F"), dtype=float)
             g_old = _tche(F_pop[P], self.Z, self.W[P])
-            g_new = _tche(np.repeat(off_f[None, :], len(P), axis=0), self.Z, self.W[P])
+            g_new = _tche(np.tile(f, (len(P), 1)), self.Z, self.W[P])
             better = np.where(g_old >= g_new)[0]
             if better.size:
-                j = int(P[better[0]])
-                self.pop[j] = off
-                F_pop[j] = off_f
-
-        # Archive maintenance.
-        merged = Population.merge(self.ext_archive, infills)
+                self.pop[int(P[better[0]])] = off[0]
+        merged = Population.merge(self.ext_archive, *offs)
         fn, _ = NDSort(np.asarray(merged.get("F"), dtype=float), 1)
-        self.ext_archive = archive_update(
-            merged[np.asarray(fn).reshape(-1) == 1], 2 * self.pop_size,
-        )
-
-        # Periodic weight update.
+        self.ext_archive = archive_update(merged[np.asarray(fn).reshape(-1) == 1], 2 * N)
         if self.adapt_weights:
-            gen = int(np.ceil(current_fe(self) / self.pop_size))
-            try:
-                total = int(max_fe(self))
-                max_gen = int(np.ceil(total / self.pop_size))
-            except Exception:
-                total, max_gen = None, None
-            if (
-                max_gen
-                and gen % max(1, int(np.ceil(0.05 * max_gen))) == 0
-                and current_fe(self) <= 0.9 * total
-            ):
+            period = int(np.ceil(0.05 * int(np.ceil(self.max_FE / N))))
+            if int(np.ceil(self.FE / N)) % max(1, period) == 0 and self.FE <= 0.9 * self.max_FE:
                 self._weight_update()
-        self._set_optimum()
 
     # -- weight adaptation ------------------------------------------------
     def _weight_update(self):

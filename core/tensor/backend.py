@@ -20,6 +20,18 @@ _JIT_COMPILER: Callable[[Callable], Callable] = lambda f: f
 _DEVICE_INFO: dict[str, Any] = {}
 
 
+def snapshot_backend() -> tuple[Any, ...]:
+    """Capture the process-wide backend state so callers can scope backend changes."""
+    return (_ACTIVE_BACKEND, _ARRAY_MODULE, _JIT_COMPILER, dict(_DEVICE_INFO))
+
+
+def restore_backend(snapshot: tuple[Any, ...]) -> None:
+    """Restore a state captured by :func:`snapshot_backend`."""
+    global _ACTIVE_BACKEND, _ARRAY_MODULE, _JIT_COMPILER, _DEVICE_INFO
+    _ACTIVE_BACKEND, _ARRAY_MODULE, _JIT_COMPILER, info = snapshot
+    _DEVICE_INFO = dict(info)
+
+
 def get_backend_type() -> BackendType:
     return _ACTIVE_BACKEND
 

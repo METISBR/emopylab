@@ -180,7 +180,8 @@ class GDPlus(Indicator):
         if F is None or len(F) == 0:
             return float("nan")
         F = np.atleast_2d(np.asarray(F, dtype=float))
-        diff = np.maximum(self.pf[None, :, :] - F[:, None, :], 0.0)
+        # Modified distance of every solution to the reference set: max(F - PF, 0), averaged over the solutions
+        diff = np.maximum(F[:, None, :] - self.pf[None, :, :], 0.0)
         dists = np.min(np.sqrt(np.sum(diff ** 2, axis=2)), axis=1)
         return float(np.mean(dists))
 

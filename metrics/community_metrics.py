@@ -13,7 +13,7 @@ except Exception:  # noqa: BLE001
     _NDS = None
 
 
-# References copied from the original MATLAB metric implementations when available.
+# Formal academic bibliography for multi- and many-objective optimization quality indicators.
 METRIC_REFERENCES: dict[str, str] = {
     "CPF": (
         "Y. Tian, R. Cheng, X. Zhang, M. Li, and Y. Jin. Diversity assessment of "
@@ -197,6 +197,8 @@ def _get_current_F(context: dict[str, Any], front: Any) -> np.ndarray:
 
 def _get_current_X(context: dict[str, Any]) -> np.ndarray | None:
     values = context.get("current_population_X")
+    if values is None:
+        values = context.get("current_X")
     if values is None:
         return None
     arr = _as_2d(values)
@@ -654,6 +656,9 @@ def _metric_Feasible_rate(front: np.ndarray, context: dict[str, Any]) -> float:
     F = _get_current_F(context, front)
     mask = _infer_feasible_mask(context, F.shape[0])
     if mask is None:
+        problem = context.get("problem")
+        if problem is not None and getattr(problem, "n_constr", 0) == 0:
+            return 1.0
         return float("nan")
     if mask.size == 0:
         return float("nan")
@@ -939,6 +944,30 @@ def _metric_Worst_IGD(front: np.ndarray, context: dict[str, Any]) -> float:
     return float(np.max(scores))
 
 
+def _metric_H_old(front: np.ndarray, context: dict[str, Any]) -> float:
+    from metrics.kkt_indicators import calc_h_old
+    pop_dec = _get_current_X(context)
+    problem = context.get("problem")
+    if pop_dec is None or problem is None or pop_dec.size == 0:
+        return float("nan")
+    try:
+        return float(calc_h_old(pop_dec, problem))
+    except Exception:
+        return float("nan")
+
+
+def _metric_H_adap(front: np.ndarray, context: dict[str, Any]) -> float:
+    from metrics.kkt_indicators import calc_h_adap
+    pop_dec = _get_current_X(context)
+    problem = context.get("problem")
+    if pop_dec is None or problem is None or pop_dec.size == 0:
+        return float("nan")
+    try:
+        return float(calc_h_adap(pop_dec, problem))
+    except Exception:
+        return float("nan")
+
+
 
 def _metric_R2(front: np.ndarray, context: dict[str, Any]) -> float:
     """R2 Performance Indicator (Hansen & Jaszkiewicz, 1998)."""
@@ -958,6 +987,8 @@ METRICS = {
     "Feasible_rate": _metric_Feasible_rate,
     "GD": _metric_GD,
     "HV": _metric_HV,
+    "H_adap": _metric_H_adap,
+    "H_old": _metric_H_old,
     "IGD": _metric_IGD,
     "IGDp": _metric_IGDp,
     "IGDX": _metric_IGDX,

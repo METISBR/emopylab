@@ -167,7 +167,7 @@ class MOCell(Algorithm):
 
         if len(archive) > self.pop_size:
             cd = np.asarray(CrowdingDistance(np.asarray(archive.get("F"), dtype=float), np.ones(len(archive))), dtype=float)
-            rank = np.argsort(-cd)
+            rank = np.argsort(-cd, kind="stable")
             archive = archive[rank[: self.pop_size]]
 
         n_rep = min(20, len(pop), len(archive))

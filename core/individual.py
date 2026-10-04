@@ -48,6 +48,7 @@ class Individual:
         self._ddG = None
         self._ddH = None
         self._CV = None
+        self._FEAS = None
         self.evaluated = None
 
         self.reset()
@@ -78,6 +79,7 @@ class Individual:
         self._ddG = empty
         self._ddH = empty
         self._CV = None
+        self._FEAS = None
         if data:
             self.data = {}
         self.evaluated = set()
@@ -156,7 +158,8 @@ class Individual:
         if cache and self._CV is not None:
             return self._CV
         else:
-            self._CV = np.array([calc_cv(G=self.G, H=self.H, config=config)])
+            # Aggregate CV of one individual is a length-1 vector (scalar per individual).
+            self._CV = np.asarray(calc_cv(G=self.G, H=self.H, config=config), dtype=float).reshape(-1)[:1]
             return self._CV
 
     @CV.setter
@@ -165,8 +168,14 @@ class Individual:
 
     @property
     def FEAS(self) -> np.ndarray:
+        if self._FEAS is not None:
+            return self._FEAS
         eps = self.config.get("cv_eps", 0.0)
         return self.CV <= eps
+
+    @FEAS.setter
+    def FEAS(self, value: np.ndarray) -> None:
+        self._FEAS = np.asarray(value, dtype=bool)
 
     # -------------------------------------------------------
     # Gradients & Hessians
@@ -236,7 +245,7 @@ class Individual:
     def cv(self) -> Union[float, None]:
         if self.CV is None:
             return None
-        return self.CV[0]
+        return float(np.asarray(self.CV, dtype=float).reshape(-1)[0])
 
     @property
     def feas(self) -> bool:

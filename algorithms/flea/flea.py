@@ -52,7 +52,7 @@ def _nsga2_environmental_selection(pop: Population, N: int) -> Population:
     last = np.where(front == float(maxf))[0]
     need = int(N - np.sum(next_mask))
     if need > 0 and last.size:
-        rank = np.argsort(-crowd[last])
+        rank = np.argsort(-crowd[last], kind="stable")
         next_mask[last[rank[:need]]] = True
     return pop[np.where(next_mask)[0]]
 
@@ -79,7 +79,7 @@ def _ref_selection(problem, pop: Population, RN: int, theta: float) -> Populatio
         chosen[i] = int(np.argmin(APD))
         angle[chosen[i], :] = np.inf
     Ref = pop[chosen]
-    order = np.argsort(np.asarray(Ref.get("F"), dtype=float)[:, 0])
+    order = np.argsort(np.asarray(Ref.get("F"), dtype=float)[:, 0], kind="stable")
     return Ref[order]
 
 

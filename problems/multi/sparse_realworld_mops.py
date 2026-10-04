@@ -30,7 +30,7 @@ except Exception:  # pragma: no cover - optional dependency
     scipy_sparse = None
 
 try:
-    from sklearn.svm import SVC
+    from util.svm import SVMClassifier as SVC
 except Exception:  # pragma: no cover - optional dependency
     SVC = None
 
@@ -42,7 +42,7 @@ def _require_scipy():
 
 def _require_sklearn():
     if SVC is None:
-        raise RuntimeError("scikit-learn is required for Sparse_IS (sklearn.svm.SVC).")
+        raise RuntimeError("util.svm is required for Sparse_IS.")
 
 
 def _as_2d(x, dtype=float) -> np.ndarray:
@@ -53,14 +53,10 @@ def _as_2d(x, dtype=float) -> np.ndarray:
 
 
 def _module_dir() -> Path:
-    root = Path(__file__).resolve().parents[2] / "problems"
-    for candidate in root.iterdir():
-        if not candidate.is_dir():
-            continue
-        target = candidate / "Multi-objective optimization" / "Real-world MOPs"
-        if target.is_dir():
-            return target
-    raise FileNotFoundError("MATLAB source folder for Real-world MOPs not found.")
+    """Local data folder (benchmark datasets shipped with the package + deterministic caches)."""
+    d = Path(__file__).resolve().parent / "_data" / "realworld"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def _rng():
@@ -448,9 +444,12 @@ class Sparse_IS(Problem):
                 f[i, 0] = ratio
                 f[i, 1] = 1.0
             elif ratio > 0.0 and train_out.size > 0:
-                model = SVC()
-                model.fit(train_in, train_out)
-                pred = model.predict(valid_in) if valid_in.shape[0] > 0 else np.array([], dtype=label.dtype)
+                # linear soft-margin SVM (C=1) on the two class labels, as the reference's default binary SVM
+                lo_c, hi_c = np.min(label), np.max(label)
+                model = SVC(kernel="linear")
+                model.fit(train_in, np.where(train_out == hi_c, 1, -1))
+                pred = (np.where(model.predict(valid_in) > 0, hi_c, lo_c)
+                        if valid_in.shape[0] > 0 else np.array([], dtype=label.dtype))
                 f[i, 0] = ratio
                 f[i, 1] = float(np.mean(pred != valid_out)) if valid_out.size else 0.0
             else:

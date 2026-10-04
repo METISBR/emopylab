@@ -12,13 +12,11 @@ from __future__ import annotations
 import numpy as np
 from util.array_backend import backend_cdist
 
-from core.algorithm import Algorithm
+from algorithms.community_utils.base import LoopAlgorithm, decs, objs
 from core.population import Population
 from operators.utility_functions.CrowdingDistance import CrowdingDistance
 from operators.utility_functions.NDSort import NDSort
 from operators.utility_functions.OperatorGA import OperatorGA
-from operators.utility_functions.TournamentSelection import TournamentSelection
-from algorithms.community_utils.moead_family import max_fe, set_optimum_from_pop
 from operators.sampling.lhs import LatinHypercubeSampling
 
 
@@ -145,20 +143,15 @@ def _update_archive(population: Population, archive: Population | None, max_size
     denom = np.maximum(f_max - f_min, 1e-12)
     f_norm = (f - f_min) / denom
 
-    i_mat = np.zeros((n, n), dtype=float)
-    for i in range(n):
-        i_mat[i, :] = np.max(f_norm[i] - f_norm, axis=1)
-
-    c = np.max(np.abs(i_mat), axis=1)
-    c = np.maximum(c, 1e-12)
-    f_fit = np.sum(-np.exp(-i_mat / c[:, None] / 0.05), axis=1) + 1.0
+    i_mat = np.max(f_norm[:, None, :] - f_norm[None, :, :], axis=2)      # I(i, j) = max(f_i - f_j)
+    c = np.maximum(np.max(np.abs(i_mat), axis=0), 1e-12)                  # column maxima C(j)
+    f_fit = np.sum(-np.exp(-i_mat / c[None, :] / 0.05), axis=0) + 1.0      # F(j) sums over the rows i
 
     choose = np.arange(n)
     while len(choose) > max_size:
-        local_fit = f_fit[choose]
-        x = int(np.argmin(local_fit))
-        chosen_x = choose[x]
-        f_fit = f_fit + np.exp(-i_mat[chosen_x, :] / c[chosen_x] / 0.05)
+        x = int(np.argmin(f_fit[choose]))
+        cx = choose[x]
+        f_fit = f_fit + np.exp(-i_mat[cx, :] / c[cx] / 0.05)
         choose = np.delete(choose, x)
 
     archive = archive[choose]
@@ -248,7 +241,7 @@ def _vertmap(arc_obj: np.ndarray, pop_obj: np.ndarray,
     n, m = pop_obj.shape
     map_pop = np.zeros((n, m), dtype=float)
 
-    rank = np.argsort(-arc_obj, axis=0)
+    rank = np.argsort(-arc_obj, axis=0, kind="stable")
     extreme = np.zeros(m, dtype=int)
     extreme[0] = rank[0, 0]
     for j in range(1, m):
@@ -260,9 +253,9 @@ def _vertmap(arc_obj: np.ndarray, pop_obj: np.ndarray,
 
     try:
         if arc_obj.shape[0] >= m:
-            hyperplane = np.linalg.lstsq(arc_obj[extreme, :], np.ones(m), rcond=None)[0]
+            hyperplane = np.linalg.solve(arc_obj[extreme, :], np.ones(m))
         else:
-            hyperplane = np.linalg.lstsq(pop_obj[extreme, :], np.ones(m), rcond=None)[0]
+            hyperplane = np.linalg.solve(pop_obj[extreme, :], np.ones(m))
     except Exception:
         hyperplane = np.ones(m, dtype=float)
 
@@ -282,183 +275,95 @@ def _vertmap(arc_obj: np.ndarray, pop_obj: np.ndarray,
     return map_pop, hyperplane
 
 
-class NRVMOEA(Algorithm):
-    def __init__(self, pop_size: int = 100, sampling=None, n_max_evals: int | None = None, **kwargs):
-        super().__init__(**kwargs)
-        self.pop_size = int(pop_size)
-        self.sampling = sampling
-        self.n_max_evals = n_max_evals
+class NRVMOEA(LoopAlgorithm):
+    """Adaptive normal-reference-vector MOEA: the last front of [population, archive, offspring] is projected onto
+    the hyperplane through the archive extremes, Ward-clustered, and one solution per cluster (closest to the cluster
+    centre and farthest beyond the hyperplane) joins the better fronts; an oversized result is truncated by removing
+    the most crowded solutions while keeping one extreme per objective."""
 
-    def _initialize_infill(self):
-        rng = _rng(self)
-        return _sample_initial(self.problem, self.pop_size, self.sampling, rng)
+    def __init__(self, pop_size: int = 100, sampling=None, **kwargs):
+        super().__init__(pop_size=pop_size, sampling=sampling, **kwargs)
 
-    def _initialize_advance(self, infills=None, **kwargs):
-        self.pop = infills
-        f = np.asarray(self.pop.get("F"), dtype=float)
-
+    def start(self):
+        f = objs(self.pop)
         self.z_nadir = f.max(axis=0)
         self.z_min = f.min(axis=0)
-        self.z_max = f.max(axis=0)
-        self.scale = self.z_max - self.z_min
-        self.scale = np.where(np.abs(self.scale) <= 1e-12, 1.0, self.scale)
+        self.scale = f.max(axis=0) - self.z_min
+        self.nrv_archive = _update_archive(self.pop, None, self.N)
+        self.extrem_point = np.full((f.shape[1], f.shape[1]), 10e30)
+        with np.errstate(all="ignore"):
+            _, self.hyperplane = _vertmap((objs(self.nrv_archive) - self.z_min) / self.scale,
+                                          (f - self.z_min) / self.scale, None)
 
-        self.nrv_archive = _update_archive(self.pop, None, self.pop_size)
-        self.extrem_point = np.full((f.shape[1], f.shape[1]), 1e31, dtype=float)
-
-        pop_obj_n = (f - self.z_min) / self.scale
-        arc_obj_n = (np.asarray(self.nrv_archive.get("F"), dtype=float) - self.z_min) / self.scale
-        self.hyperplane_bp = np.array([], dtype=float)
-        _, self.hyperplane = _vertmap(arc_obj_n, pop_obj_n, self.hyperplane_bp)
-
-    def _infill(self):
-        rng = _rng(self)
-        self._prev_pop = self.pop.copy()
-        self.nrv_archive = _update_archive(self.pop, self.nrv_archive, self.pop_size)
-
-        mating_pool = rng.integers(0, len(self.pop), size=self.pop_size)
-        # Pass decision vectors (not a Population) so the operator does NOT
-        # evaluate internally via problem.evaluate (which bypasses the
-        # algorithm's evaluator and would leave these offspring uncounted).
-        # The returned, still-unevaluated offspring are evaluated and counted by
-        # the framework before _advance, keeping n_eval honest for a fair budget.
-        off_dec = OperatorGA(self.problem, self.pop[mating_pool].get("X"), rng=rng)
-        if hasattr(off_dec, "get"):
-            off_dec = off_dec.get("X")
-        off_dec = np.atleast_2d(np.asarray(off_dec, dtype=float))
-        offspring = Population.new("X", off_dec)
-        self._offspring = offspring
-
-        # Prepare data structures used in advance.
-        self._union_pop = Population.merge(self.pop, self.nrv_archive)
-        self._union_pop = Population.merge(self._union_pop, offspring)
-        return offspring
-
-    def _advance(self, infills=None, **kwargs):
-        pop = self._prev_pop
-        offspring = self._offspring
-        union_pop = self._union_pop
-        union_obj = np.asarray(union_pop.get("F"), dtype=float)
-
-        front_no, max_f_no = NDSort(union_obj, self.pop_size)
-        pareto_p = np.where(front_no == max_f_no)[0]
-        chosen_mask = front_no < max_f_no
-        chosen_idx = np.where(chosen_mask)[0]
-        chosen_pop = union_pop[chosen_idx]
-
-        # Randomize other indices for backup.
-        other_idx = chosen_idx.copy()
-        rng = _rng(self)
-        rng.shuffle(other_idx)
-
-        if len(pareto_p) < self.problem.n_obj:
-            need = self.problem.n_obj - len(pareto_p)
-            extra = other_idx[:need]
-            pareto_p = np.concatenate([pareto_p, extra])
-
-        pop_obj = union_obj[pareto_p]
-
-        self.z_min = union_obj.min(axis=0)
-        self.z_max = pop_obj.max(axis=0)
-        self.z_min = np.minimum(self.z_min, pop_obj.min(axis=0))
-
-        archive_obj = np.asarray(self.nrv_archive.get("F"), dtype=float)
-        self.z_nadir, self.extrem_point = _update_nadir_point(
-            archive_obj, self.z_min, self.z_nadir, self.extrem_point
-        )
-
-        max_evals = self.n_max_evals if self.n_max_evals is not None else max_fe(self)
-
-        fe = self.evaluator.n_eval
-        if max_evals > 0 and fe > 0 and fe % max(1, int(np.ceil(0.1 * max_evals))) == 0:
-            self.scale = self.z_max - self.z_min
-            self.scale = np.where(np.abs(self.scale) <= 1e-12, 1.0, self.scale)
-            self.hyperplane_bp = self.hyperplane.copy()
-
-        self.scale = np.where(np.abs(self.scale) <= 1e-12, 1e-12, self.scale)
-        pop_obj_n = (pop_obj - self.z_min) / self.scale
-        arc_obj_n = (archive_obj - self.z_min) / self.scale
-        map_pop, self.hyperplane = _vertmap(arc_obj_n, pop_obj_n, self.hyperplane_bp)
-
-        n_clusters = min(self.pop_size - len(chosen_pop), len(pareto_p))
-        if n_clusters <= 0:
-            self.pop = chosen_pop
-            return
-
+    def step(self):
+        rng, N, M = self.rng, self.N, self.M
+        self.nrv_archive = _update_archive(self.pop, self.nrv_archive, N)
+        pop = Population.merge(self.pop, self.nrv_archive)
+        off = self.evaluate(np.asarray(OperatorGA(self.problem, decs(pop[rng.integers(0, len(pop), size=N)]),
+                                                  rng=rng), dtype=float))
+        uni = Population.merge(pop, off)
+        U = objs(uni)
+        front_no, max_f = NDSort(U, N)
+        pareto_p = np.where(front_no == max_f)[0]
+        chosen = np.where(front_no < max_f)[0]
+        ids = chosen[rng.permutation(len(chosen))]
+        if len(pareto_p) < M:
+            pareto_p = np.concatenate([pareto_p, ids[: 10 - len(pareto_p)]])     # literal: fills up to 10
+        P = U[pareto_p]
+        self.z_min = np.minimum(U.min(axis=0), P.min(axis=0))
+        z_max = P.max(axis=0)
+        self.z_nadir, self.extrem_point = _update_nadir_point(objs(self.nrv_archive), self.z_min, self.z_nadir,
+                                                              self.extrem_point)
+        if self.FE % int(np.ceil(0.1 * self.max_FE)) == 0:
+            self.scale = z_max - self.z_min
+        self.scale = np.where(self.scale == 0, 1e-5, self.scale)
+        with np.errstate(all="ignore"):
+            Pn = (P - self.z_min) / self.scale
+            An = (objs(self.nrv_archive) - self.z_min) / self.scale
+            map_pop, self.hyperplane = _vertmap(An, Pn, None)
+        K = N - len(chosen)
         try:
-            t = _ward_clustering(map_pop, n_clusters)
+            t = _ward_clustering(map_pop, K)
         except Exception:
-            t = _ward_clustering(pop_obj_n, n_clusters)
-
-        ep = Population()
-        seen_labels = set()
-        for c in range(n_clusters):
+            t = _ward_clustering(Pn, K)
+        ep = []                                                   # indices into ``uni`` (unique by identity)
+        hp = self.hyperplane
+        for c in range(K):
             current = np.where(t == c)[0]
-            if current.size == 0:
+            if current.size == 0:                                 # an empty cluster contributes nothing
+                ep = sorted(set(ep) | set(chosen.tolist()))
                 continue
-            seen_labels.add(c)
-            pn = len(current)
-            ref = np.sum(map_pop[current, :], axis=0) / pn
-            if pn > 1:
-                d12 = np.zeros(pn, dtype=float)
-                for pc in range(pn):
-                    d1 = np.linalg.norm(ref - map_pop[current[pc], :])
-                    d2 = -(pop_obj_n[current[pc], :] @ self.hyperplane - 1.0) / np.sqrt(np.sum(self.hyperplane ** 2))
-                    d12[pc] = d1 - d2
-                ct = int(np.argmin(d12))
-                choose = current[ct]
+            ref = map_pop[current].mean(axis=0)
+            if len(current) > 1:
+                with np.errstate(all="ignore"):
+                    d1 = np.linalg.norm(ref - map_pop[current], axis=1)
+                    d2 = -(Pn[current] @ hp - 1.0) / np.sqrt(np.sum(hp ** 2))
+                pick = current[int(np.argmin(d1 - d2))]
             else:
-                choose = current[0]
-
-            ep = Population.merge(ep, union_pop[[pareto_p[choose]]])
-            ep = Population.merge(ep, chosen_pop)
-            _, uidx = np.unique(np.round(ep.get("F"), 10), axis=0, return_index=True)
-            ep = ep[uidx]
-
-        # Ensure requested number of clusters are represented; fill missing ones.
-        missing = n_clusters - len(seen_labels)
-        if missing > 0 and len(pareto_p) > len(seen_labels):
-            leftover = [i for i in range(len(pareto_p)) if i not in seen_labels]
-            rng.shuffle(leftover)
-            for i in leftover[:missing]:
-                ep = Population.merge(ep, union_pop[[pareto_p[i]]])
-                ep = Population.merge(ep, chosen_pop)
-                _, uidx = np.unique(np.round(ep.get("F"), 10), axis=0, return_index=True)
-                ep = ep[uidx]
-
-        if len(ep) > self.pop_size or fe >= 0.9 * max_evals:
-            ep_front_no, ep_max_f_no = NDSort(ep.get("F"), self.pop_size)
-            ep = ep[ep_front_no <= ep_max_f_no]
-            ep_obj = np.asarray(ep.get("F"), dtype=float)
-            rank = np.argsort(ep_obj, axis=0)
-            extreme = np.zeros(self.problem.n_obj, dtype=int)
+                pick = current[0]
+            ep = sorted(set(ep) | {int(pareto_p[pick])} | set(chosen.tolist()))
+        EP = uni[np.asarray(ep, dtype=int)]
+        if len(EP) > N or self.FE >= 0.9 * self.max_FE:
+            fno, mfno = NDSort(objs(EP), N)
+            EP = EP[fno <= mfno]
+            E = objs(EP)
+            rank = np.argsort(E, axis=0, kind="stable")
+            extreme = np.zeros(M, dtype=int)
             extreme[0] = rank[0, 0]
-            for j in range(1, len(extreme)):
+            for j in range(1, M):
                 k = 0
                 extreme[j] = rank[k, j]
-                while extreme[j] in extreme[:j] and k < rank.shape[0] - 1:
+                while extreme[j] in extreme[:j]:
                     k += 1
                     extreme[j] = rank[k, j]
-
-            ep_temp = ep[extreme]
-            ep_mask = np.ones(len(ep), dtype=bool)
-            ep_mask[extreme] = False
-            ep_rest = ep[ep_mask]
-            n_remove = len(ep_rest) - self.pop_size + len(extreme)
-            ep_indices = list(range(len(ep_rest)))
-            while n_remove > 0 and len(ep_indices) > 0:
-                obj = np.asarray(ep_rest[ep_indices].get("F"), dtype=float)
-                norm_obj = (obj - self.z_min) / self.scale
-                dis = backend_cdist(norm_obj, norm_obj, metric="euclidean")
+            keep = np.ones(len(EP), dtype=bool)
+            keep[extreme] = False
+            temp, rest = EP[extreme], EP[keep]
+            for _ in range(len(rest) - N):                        # literal: Extreme is emptied before the count
+                O = (objs(rest) - self.z_min) / self.scale
+                dis = backend_cdist(O, O)
                 np.fill_diagonal(dis, 1e10)
-                mindis = dis.min(axis=1)
-                del_idx = int(np.argmin(mindis))
-                ep_indices.pop(del_idx)
-                n_remove -= 1
-
-            ep = Population.merge(ep_rest[ep_indices], ep_temp)
-
-        self.pop = ep
-
-    def _set_optimum(self):
-        set_optimum_from_pop(self)
+                d = int(np.argmin(dis.min(axis=1)))
+                rest = rest[np.delete(np.arange(len(rest)), d)]
+            EP = Population.merge(rest, temp)
+        self.pop = EP

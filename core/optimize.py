@@ -12,7 +12,17 @@ from util.display.multi import Display, MultiObjectiveDisplay, SingleObjectiveDi
 from core.result import Result
 
 
-def minimize(
+def minimize(problem: Any, algorithm: Any, *args: Any, **kwargs: Any) -> Result:
+    """Run one optimization; any tensor-backend switch made by the algorithm is scoped to the run."""
+    from core.tensor.backend import restore_backend, snapshot_backend
+    snap = snapshot_backend()
+    try:
+        return _minimize_impl(problem, algorithm, *args, **kwargs)
+    finally:
+        restore_backend(snap)
+
+
+def _minimize_impl(
     problem: Any,
     algorithm: Any,
     termination: Any = None,

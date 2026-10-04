@@ -24,9 +24,6 @@ plotly>=5.24,<6
 # ==============================================================================
 # Optional profiles (uncomment as needed)
 # ==============================================================================
-# GPU acceleration profiles (PyTorch cross-platform for CUDA / ROCm / Apple MPS)
-torch>=2.0,<3
-
 # Apple Silicon native MLX acceleration profile (macOS ARM64 only)
 mlx>=0.21.0; sys_platform == "darwin" and platform_machine == "arm64"
 mlx-lm>=0.21,<1; sys_platform == "darwin" and platform_machine == "arm64"

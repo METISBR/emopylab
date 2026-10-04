@@ -85,7 +85,26 @@ def to_device(value: Any, use_gpu: bool = False, dtype: Any = None) -> Any:
 
 
 def get_array_module(_value: Any = None) -> Any:
-    """Return the active array module."""
+    """Return the array module that owns ``_value``; the active backend when ``None``.
+
+    Dispatching on the value (not on global state) keeps NumPy inputs on NumPy even
+    after another component switched the process-wide tensor backend.
+    """
+    if _value is not None:
+        root = type(_value).__module__.split(".")[0]
+        if root == "numpy" or isinstance(_value, (int, float, bool, complex, list, tuple)):
+            return np
+        if root == "torch":
+            import torch
+            return torch
+        if root == "mlx":
+            import mlx.core as mx
+            return mx
+        if root == "cupy" and cp is not None:
+            return cp
+        if root in ("jax", "jaxlib"):
+            import jax.numpy as jnp
+            return jnp
     from core.tensor.backend import get_array_module as _core_get_array_module
     return _core_get_array_module()
 
@@ -137,14 +156,25 @@ def resolve_backend_config(
     gpu_dtype: str = "float32",
 ) -> dict[str, Any]:
     """Resolve backend settings using core tensor backend detection."""
-    from core.tensor.backend import init_tensor_backend
     from core.registry.backends import jax_available, mlx_available, torch_available
     requested = str(array_backend).strip().lower() or "auto"
-    if requested == "auto":
-        info = init_tensor_backend(prefer=None)
+    # Pure resolution: report which backend would be used WITHOUT mutating the
+    # process-wide tensor backend (that is done explicitly via init_tensor_backend).
+    if requested in ("auto", "numpy") and not use_gpu:
+        info = {"backend": "numpy", "accelerated": False}
     else:
-        info = init_tensor_backend(prefer=requested if requested in ("torch", "mlx", "cupy", "jax", "numpy") else None)
-
+        import sys as _sys
+        import os as _os
+        avail = {
+            "mlx": _sys.platform == "darwin" and _os.uname().machine in ("arm64", "aarch64") and mlx_available(),
+            "torch": torch_available(),
+            "cupy": CUPY_AVAILABLE,
+            "jax": jax_available(),
+            "numpy": True,
+        }
+        order = ("mlx", "torch", "cupy", "jax", "numpy") if requested == "auto" else (requested, "numpy")
+        eff = next((b for b in order if avail.get(b, False)), "numpy")
+        info = {"backend": eff, "accelerated": eff != "numpy"}
     is_accel = bool(info.get("accelerated", False))
     eff = info.get("backend", "numpy")
     return {
